@@ -31,7 +31,7 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     {
         _store = new DailyStatsStore();
         Settings = new SettingsService(_store.ConnectionString);
-        ImportLegacyConfigOnce();
+        LegacyConfig.ImportOnce(Settings, LegacyConfig.DefaultPath);
         IdleMonitor.Bind(Settings);
         _store.CloseOrphanOpenSegments(DateTime.UtcNow);
         _currentDateKey = TodayKey();
@@ -133,21 +133,6 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         var dailyActive = BuildDailyActiveMinutes(segments, start, end);
 
         return new RangeSnapshot(start, end, keys, clicks, appUsage, dailyActive);
-    }
-
-    private void ImportLegacyConfigOnce()
-    {
-        if (Settings.Current.LegacyConfigImported)
-        {
-            return;
-        }
-
-        int? minutes = LegacyConfig.ReadThresholdMinutes(LegacyConfig.DefaultPath);
-        Settings.Update(s => s with
-        {
-            IdleThresholdMinutes = minutes ?? s.IdleThresholdMinutes,
-            LegacyConfigImported = true
-        });
     }
 
     private void FlushOpenSegmentCounts()

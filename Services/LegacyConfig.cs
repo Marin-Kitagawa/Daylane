@@ -12,6 +12,7 @@ internal static class LegacyConfig
 
     internal static int? ReadThresholdMinutes(string configPath)
     {
+        int? minutes = null;
         try
         {
             if (!File.Exists(configPath))
@@ -36,7 +37,8 @@ internal static class LegacyConfig
                         out int parsed)
                     && parsed is >= IdleMonitor.MinThresholdMinutes and <= IdleMonitor.MaxThresholdMinutes)
                 {
-                    return parsed;
+                    // Last valid line wins, matching the original IdleMonitor.Load() behavior.
+                    minutes = parsed;
                 }
             }
         }
@@ -44,6 +46,26 @@ internal static class LegacyConfig
         {
         }
 
-        return null;
+        return minutes;
+    }
+
+    /// <summary>Imports the threshold from <paramref name="configPath"/> exactly once, gated on
+    /// <see cref="DaylaneSettings.LegacyConfigImported"/> rather than "is the threshold still the
+    /// default" — a user who deliberately chose the default value must not be overwritten by a
+    /// stale config.ini. Sets the flag whether or not a value was found, so a missing or
+    /// malformed file never leaves the import armed forever.</summary>
+    internal static void ImportOnce(SettingsService settings, string configPath)
+    {
+        if (settings.Current.LegacyConfigImported)
+        {
+            return;
+        }
+
+        int? minutes = ReadThresholdMinutes(configPath);
+        settings.Update(s => s with
+        {
+            IdleThresholdMinutes = minutes ?? s.IdleThresholdMinutes,
+            LegacyConfigImported = true
+        });
     }
 }
