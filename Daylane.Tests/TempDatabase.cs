@@ -42,9 +42,10 @@ internal sealed class TempDatabase : IDisposable
         {
             Directory.Delete(_directory, recursive: true);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // A leaked handle should fail the test that leaked it, not every later test.
+            // Best-effort cleanup: a locked or read-only file must not turn scratch-directory
+            // teardown into a spurious test failure that masks the real assertion result.
         }
     }
 }
