@@ -17,9 +17,9 @@ internal sealed class DailyStatsStore : IDisposable
     private readonly Timer _flushTimer;
     private bool _disposed;
 
-    public DailyStatsStore()
+    public DailyStatsStore(string? databasePath = null)
     {
-        DatabasePath = ResolveDatabasePath();
+        DatabasePath = databasePath ?? ResolveDatabasePath();
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = DatabasePath,
@@ -32,6 +32,8 @@ internal sealed class DailyStatsStore : IDisposable
     }
 
     public string DatabasePath { get; }
+
+    internal string ConnectionString => _connectionString;
 
     public (long KeyCount, long MouseClickCount) GetTodayTotals() =>
         GetTotalsForDate(TodayKey());
