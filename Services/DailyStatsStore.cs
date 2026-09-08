@@ -8,7 +8,6 @@ namespace Daylane.Services;
 internal sealed class DailyStatsStore : IDisposable
 {
     private const int FlushRetryCount = 3;
-    private const int SchemaVersion = 1;
 
     private readonly ConcurrentQueue<InputEvent> _buffer = new();
     private readonly string _connectionString;
@@ -564,65 +563,7 @@ internal sealed class DailyStatsStore : IDisposable
             pragma.ExecuteNonQuery();
         }
 
-        int version;
-        using (var versionCommand = connection.CreateCommand())
-        {
-            versionCommand.CommandText = "PRAGMA user_version;";
-            version = Convert.ToInt32(versionCommand.ExecuteScalar());
-        }
-
-        if (version < 1)
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                CREATE TABLE IF NOT EXISTS DailyInput (
-                    LogDate TEXT PRIMARY KEY,
-                    KeyCount INTEGER NOT NULL DEFAULT 0,
-                    MouseClickCount INTEGER NOT NULL DEFAULT 0
-                );
-
-                CREATE TABLE IF NOT EXISTS ActivitySegment (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    StartUtc TEXT NOT NULL,
-                    EndUtc TEXT NULL,
-                    ProcessName TEXT NOT NULL,
-                    ExePath TEXT NOT NULL,
-                    DisplayName TEXT NOT NULL,
-                    IsIdle INTEGER NOT NULL DEFAULT 0,
-                    KeyCount INTEGER NOT NULL DEFAULT 0,
-                    MouseClickCount INTEGER NOT NULL DEFAULT 0
-                );
-
-                CREATE INDEX IF NOT EXISTS IX_ActivitySegment_StartEnd
-                    ON ActivitySegment (StartUtc, EndUtc);
-
-                CREATE INDEX IF NOT EXISTS IX_ActivitySegment_ExePath_Start
-                    ON ActivitySegment (ExePath, StartUtc);
-
-                CREATE TABLE IF NOT EXISTS OpenAppSegment (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    StartUtc TEXT NOT NULL,
-                    EndUtc TEXT NULL,
-                    ProcessName TEXT NOT NULL,
-                    ExePath TEXT NOT NULL,
-                    DisplayName TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_StartEnd
-                    ON OpenAppSegment (StartUtc, EndUtc);
-
-                CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_ExePath_Start
-                    ON OpenAppSegment (ExePath, StartUtc);
-                """;
-            command.ExecuteNonQuery();
-        }
-
-        if (version < SchemaVersion)
-        {
-            using var setVersion = connection.CreateCommand();
-            setVersion.CommandText = $"PRAGMA user_version = {SchemaVersion};";
-            setVersion.ExecuteNonQuery();
-        }
+        Migrations.Apply(connection, DatabasePath);
     }
 
     private static ActivitySegment ReadSegment(SqliteDataReader reader) =>
