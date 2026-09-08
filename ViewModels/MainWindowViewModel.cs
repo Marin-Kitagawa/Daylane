@@ -22,6 +22,25 @@ internal enum InsightPeriod
     Month
 }
 
+/// <summary>
+/// Resolves the away/idle swatch color for the non-Control list rows (segment and app
+/// usage rows) that mirror TimelineBar's idle styling but have no IResourceHost of their
+/// own to cache a TimelinePalette against or a theme-change event to invalidate it on.
+/// Resolved fresh from Application.Current on each call -- these rows are rebuilt on
+/// selection/refresh anyway, so a live lookup costs nothing and never goes stale.
+/// </summary>
+internal static class IdlePalette
+{
+    public static Color Fill
+    {
+        get
+        {
+            var app = Avalonia.Application.Current!;
+            return TimelinePalette.Resolve(app, app.ActualThemeVariant).IdleFill;
+        }
+    }
+}
+
 internal sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     private readonly TrackingService _tracking;
@@ -855,7 +874,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         _selectedDetailShareText = $"{share:0.0}% of tracked";
         _selectedDetailIcon = segment.IsIdle ? null : AppIconLoader.Get(segment.ExePath);
         _selectedDetailColor = segment.IsIdle
-            ? new SolidColorBrush(AwayHatch.Fill)
+            ? new SolidColorBrush(IdlePalette.Fill)
             : AppColor.For(segment.ExePath, segment.ProcessName);
         NotifySelectedDetailChanged();
     }
@@ -1107,7 +1126,7 @@ internal sealed class ActivitySegmentItemViewModel : INotifyPropertyChanged
             IsIdle = segment.IsIdle,
             Icon = segment.IsIdle ? null : AppIconLoader.Get(segment.ExePath),
             Color = segment.IsIdle
-                ? new SolidColorBrush(AwayHatch.Fill)
+                ? new SolidColorBrush(IdlePalette.Fill)
                 : AppColor.For(segment.ExePath, segment.ProcessName)
         };
     }
@@ -1166,7 +1185,7 @@ internal sealed class AppUsageItemViewModel
             BarWidth = BarTrackWidth * barRatio,
             Icon = summary.IsIdle ? null : AppIconLoader.Get(summary.ExePath),
             Color = summary.IsIdle
-                ? new SolidColorBrush(AwayHatch.Fill)
+                ? new SolidColorBrush(IdlePalette.Fill)
                 : AppColor.For(summary.ExePath, summary.ProcessName)
         };
     }

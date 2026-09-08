@@ -15,7 +15,7 @@ internal enum TimelineLaneMode
     Activity
 }
 
-internal sealed class TimelineLane : Control
+internal sealed class TimelineLane : ThemedControl
 {
     public static readonly StyledProperty<IReadOnlyList<ActivitySegment>?> SegmentsProperty =
         AvaloniaProperty.Register<TimelineLane, IReadOnlyList<ActivitySegment>?>(nameof(Segments));
@@ -113,7 +113,8 @@ internal sealed class TimelineLane : Control
         }
 
         DateTime nowUtc = DateTime.UtcNow;
-        DrawGrid(context, bounds);
+        TimelinePalette palette = Palette;
+        DrawGrid(context, bounds, palette);
 
         var segments = Segments;
         long? selectedId = SelectedSegmentId;
@@ -132,13 +133,13 @@ internal sealed class TimelineLane : Control
                 switch (Mode)
                 {
                     case TimelineLaneMode.Applications:
-                        DrawApplicationSegment(context, segment, x, w, bounds.Height);
+                        DrawApplicationSegment(context, segment, x, w, bounds.Height, palette);
                         break;
                     case TimelineLaneMode.Computer:
-                        DrawComputerSegment(context, segment, x, w, bounds.Height);
+                        DrawComputerSegment(context, segment, x, w, bounds.Height, palette);
                         break;
                     case TimelineLaneMode.Activity:
-                        DrawActivitySegment(context, segment, x, w, bounds.Height);
+                        DrawActivitySegment(context, segment, x, w, bounds.Height, palette);
                         break;
                 }
 
@@ -153,7 +154,7 @@ internal sealed class TimelineLane : Control
         {
             context.DrawRectangle(
                 null,
-                new Pen(new SolidColorBrush(Color.Parse("#111827")), 1.5),
+                new Pen(new SolidColorBrush(palette.Text), 1.5),
                 highlight,
                 2,
                 2);
@@ -165,7 +166,7 @@ internal sealed class TimelineLane : Control
             if (nowX >= 0 && nowX <= bounds.Width)
             {
                 context.DrawLine(
-                    new Pen(new SolidColorBrush(Color.Parse("#111827")), 1),
+                    new Pen(new SolidColorBrush(palette.Text), 1),
                     new Point(nowX, 0),
                     new Point(nowX, bounds.Height));
             }
@@ -337,13 +338,14 @@ internal sealed class TimelineLane : Control
         ActivitySegment segment,
         double x,
         double w,
-        double height)
+        double height,
+        TimelinePalette palette)
     {
         var rect = new Rect(x, 5, w, Math.Max(0, height - 10));
 
         if (segment.IsIdle)
         {
-            AwayHatch.Draw(context, rect, soft: true, cornerRadius: 2);
+            AwayHatch.Draw(context, rect, palette.IdleSoftFill, palette.IdleSoftStripe, cornerRadius: 2);
             return;
         }
 
@@ -385,16 +387,17 @@ internal sealed class TimelineLane : Control
         ActivitySegment segment,
         double x,
         double w,
-        double height)
+        double height,
+        TimelinePalette palette)
     {
         var rect = new Rect(x, 6, w, Math.Max(0, height - 12));
         if (segment.IsIdle)
         {
-            AwayHatch.Draw(context, rect, soft: false, cornerRadius: 2);
+            AwayHatch.Draw(context, rect, palette.IdleFill, palette.IdleStripe, cornerRadius: 2);
             return;
         }
 
-        context.FillRectangle(new SolidColorBrush(Color.Parse("#2F9E6B")), rect, 2);
+        context.FillRectangle(new SolidColorBrush(palette.Accent), rect, 2);
     }
 
     private static void DrawActivitySegment(
@@ -402,26 +405,27 @@ internal sealed class TimelineLane : Control
         ActivitySegment segment,
         double x,
         double w,
-        double height)
+        double height,
+        TimelinePalette palette)
     {
         var rect = new Rect(x, 6, w, Math.Max(0, height - 12));
         if (segment.IsIdle)
         {
-            AwayHatch.Draw(context, rect, soft: true, cornerRadius: 2);
+            AwayHatch.Draw(context, rect, palette.IdleSoftFill, palette.IdleSoftStripe, cornerRadius: 2);
             return;
         }
 
         double minutes = Math.Max(0.25, segment.Duration.TotalMinutes);
         double rate = (segment.KeyCount + segment.MouseClickCount) / minutes;
         byte alpha = (byte)Math.Clamp(50 + (rate * 14), 50, 220);
-        var brush = new SolidColorBrush(Color.FromArgb(alpha, 47, 158, 107));
+        var brush = new SolidColorBrush(Color.FromArgb(alpha, palette.Accent.R, palette.Accent.G, palette.Accent.B));
         context.FillRectangle(brush, rect, 2);
     }
 
-    private static void DrawGrid(DrawingContext context, Rect bounds)
+    private static void DrawGrid(DrawingContext context, Rect bounds, TimelinePalette palette)
     {
-        var minor = new Pen(new SolidColorBrush(Color.Parse("#F3F4F6")), 1);
-        var major = new Pen(new SolidColorBrush(Color.Parse("#E5E7EB")), 1);
+        var minor = new Pen(new SolidColorBrush(palette.GridMinor), 1);
+        var major = new Pen(new SolidColorBrush(palette.GridMajor), 1);
 
         for (int hour = 1; hour < 24; hour++)
         {
@@ -430,13 +434,13 @@ internal sealed class TimelineLane : Control
         }
 
         context.DrawLine(
-            new Pen(new SolidColorBrush(Color.Parse("#E5E7EB")), 1),
+            new Pen(new SolidColorBrush(palette.GridMajor), 1),
             new Point(0, bounds.Height - 0.5),
             new Point(bounds.Width, bounds.Height - 0.5));
     }
 }
 
-internal sealed class TimelineRuler : Control
+internal sealed class TimelineRuler : ThemedControl
 {
     protected override Size MeasureOverride(Size availableSize)
     {
@@ -449,7 +453,7 @@ internal sealed class TimelineRuler : Control
         var bounds = new Rect(Bounds.Size);
         context.FillRectangle(Brushes.White, bounds);
 
-        var textBrush = new SolidColorBrush(Color.Parse("#6B7280"));
+        var textBrush = new SolidColorBrush(Palette.Muted);
         var typeface = new Typeface("Segoe UI");
         double pxPerHour = bounds.Width / 24.0;
         int step = pxPerHour >= 56 ? 1 : pxPerHour >= 28 ? 2 : 3;
@@ -478,7 +482,7 @@ internal sealed class TimelineRuler : Control
     }
 }
 
-internal sealed class HourlyChart : Control
+internal sealed class HourlyChart : ThemedControl
 {
     public static readonly StyledProperty<IReadOnlyList<double>?> ValuesProperty =
         AvaloniaProperty.Register<HourlyChart, IReadOnlyList<double>?>(nameof(Values));
@@ -529,6 +533,7 @@ internal sealed class HourlyChart : Control
         double gap = count > 20 ? 1 : 2;
         double barWidth = Math.Max(2, (bounds.Width - (gap * (count - 1))) / count);
         double chartHeight = bounds.Height - 18;
+        TimelinePalette palette = Palette;
 
         for (int i = 0; i < count; i++)
         {
@@ -537,7 +542,7 @@ internal sealed class HourlyChart : Control
             double x = i * (barWidth + gap);
             double y = chartHeight - h;
 
-            var color = Color.Parse("#2F9E6B");
+            Color color = palette.Accent;
             byte alpha = (byte)Math.Clamp(90 + (ratio * 140), 90, 230);
             context.FillRectangle(
                 new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B)),
@@ -545,7 +550,7 @@ internal sealed class HourlyChart : Control
                 2);
         }
 
-        var textBrush = new SolidColorBrush(Color.Parse("#6B7280"));
+        var textBrush = new SolidColorBrush(palette.Muted);
         var typeface = new Typeface("Segoe UI");
         var labels = Labels;
         if (labels is { Count: > 0 })
@@ -658,20 +663,13 @@ internal static class AppColor
 
 internal static class AwayHatch
 {
-    public static readonly Color Fill = Color.Parse("#AEB4BE");
-    public static readonly Color Stripe = Color.Parse("#A0A7B1");
-    public static readonly Color SoftFill = Color.Parse("#EEF0F3");
-    public static readonly Color SoftStripe = Color.Parse("#E4E7EB");
-
-    public static void Draw(DrawingContext context, Rect rect, bool soft, double cornerRadius = 0)
+    public static void Draw(DrawingContext context, Rect rect, Color fill, Color stripe, double cornerRadius = 0)
     {
         if (rect.Width <= 0 || rect.Height <= 0)
         {
             return;
         }
 
-        Color fill = soft ? SoftFill : Fill;
-        Color stripe = soft ? SoftStripe : Stripe;
         context.FillRectangle(new SolidColorBrush(fill), rect, (float)cornerRadius);
 
         var pen = new Pen(new SolidColorBrush(stripe), 1);
@@ -692,7 +690,7 @@ internal static class AwayHatch
     }
 }
 
-internal sealed class AwayFill : Control
+internal sealed class AwayFill : ThemedControl
 {
     public static readonly StyledProperty<bool> SoftProperty =
         AvaloniaProperty.Register<AwayFill, bool>(nameof(Soft));
@@ -731,6 +729,9 @@ internal sealed class AwayFill : Control
 
     public override void Render(DrawingContext context)
     {
-        AwayHatch.Draw(context, new Rect(Bounds.Size), Soft, CornerRadius);
+        TimelinePalette palette = Palette;
+        Color fill = Soft ? palette.IdleSoftFill : palette.IdleFill;
+        Color stripe = Soft ? palette.IdleSoftStripe : palette.IdleStripe;
+        AwayHatch.Draw(context, new Rect(Bounds.Size), fill, stripe, CornerRadius);
     }
 }
