@@ -109,16 +109,16 @@ internal sealed class TempDatabase : IDisposable
     {
         _directory = Path.Combine(Path.GetTempPath(), "daylane-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_directory);
-        Path_ = Path.Combine(_directory, "daylane.db");
+        DatabasePath = Path.Combine(_directory, "daylane.db");
         ConnectionString = new SqliteConnectionStringBuilder
         {
-            DataSource = Path_,
+            DataSource = DatabasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
             DefaultTimeout = 5
         }.ConnectionString;
     }
 
-    public string Path_ { get; }
+    public string DatabasePath { get; }
 
     public string ConnectionString { get; }
 
@@ -163,10 +163,10 @@ public class DailyStatsStoreTests
     {
         using var temp = new TempDatabase();
 
-        using var store = new DailyStatsStore(temp.Path_);
+        using var store = new DailyStatsStore(temp.DatabasePath);
 
-        Assert.Equal(temp.Path_, store.DatabasePath);
-        Assert.True(File.Exists(temp.Path_));
+        Assert.Equal(temp.DatabasePath, store.DatabasePath);
+        Assert.True(File.Exists(temp.DatabasePath));
     }
 }
 ```
@@ -275,7 +275,7 @@ public class MigrationsTests
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         var tables = TableNames(connection);
         Assert.Contains("DailyInput", tables);
@@ -289,7 +289,7 @@ public class MigrationsTests
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         Assert.Equal(Migrations.CurrentVersion, Migrations.ReadUserVersion(connection));
     }
@@ -300,8 +300,8 @@ public class MigrationsTests
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         Assert.Equal(Migrations.CurrentVersion, Migrations.ReadUserVersion(connection));
     }
@@ -311,7 +311,7 @@ public class MigrationsTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         using (var insert = connection.CreateCommand())
         {
@@ -320,7 +320,7 @@ public class MigrationsTests
             insert.ExecuteNonQuery();
         }
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         using var read = connection.CreateCommand();
         read.CommandText = "SELECT KeyCount, MouseClickCount FROM DailyInput WHERE LogDate = '2026-09-01';";
@@ -419,7 +419,7 @@ internal static class Migrations
         CREATE INDEX IF NOT EXISTS IX_ActivitySegment_StartEnd
             ON ActivitySegment (StartUtc, EndUtc);
 
-        CREATE INDEX IF NOT EXISTS IX_ActivitySegment_ExePath_Start
+        CREATE INDEX IF NOT EXISTS IX_ActivitySegment_ExeDatabasePathStart
             ON ActivitySegment (ExePath, StartUtc);
 
         CREATE TABLE IF NOT EXISTS OpenAppSegment (
@@ -434,7 +434,7 @@ internal static class Migrations
         CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_StartEnd
             ON OpenAppSegment (StartUtc, EndUtc);
 
-        CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_ExePath_Start
+        CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_ExeDatabasePathStart
             ON OpenAppSegment (ExePath, StartUtc);
         """;
 }
@@ -511,7 +511,7 @@ Append to `Daylane.Tests/MigrationsTests.cs`:
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
         int before = Migrations.ReadUserVersion(connection);
 
         string[] scripts =
@@ -521,7 +521,7 @@ Append to `Daylane.Tests/MigrationsTests.cs`:
         ];
 
         Assert.Throws<InvalidOperationException>(
-            () => Migrations.Apply(connection, scripts, temp.Path_));
+            () => Migrations.Apply(connection, scripts, temp.DatabasePath));
 
         Assert.Equal(before, Migrations.ReadUserVersion(connection));
         Assert.DoesNotContain("Good", TableNames(connection));
@@ -533,7 +533,7 @@ Append to `Daylane.Tests/MigrationsTests.cs`:
         using var temp = new TempDatabase();
         using (var connection = temp.Open())
         {
-            Migrations.Apply(connection, temp.Path_);
+            Migrations.Apply(connection, temp.DatabasePath);
         }
 
         SqliteConnection.ClearAllPools();
@@ -541,10 +541,10 @@ Append to `Daylane.Tests/MigrationsTests.cs`:
 
         using (var connection = temp.Open())
         {
-            Migrations.Apply(connection, scripts, temp.Path_);
+            Migrations.Apply(connection, scripts, temp.DatabasePath);
         }
 
-        Assert.True(File.Exists($"{temp.Path_}.bak.v{Migrations.CurrentVersion}"));
+        Assert.True(File.Exists($"{temp.DatabasePath}.bak.v{Migrations.CurrentVersion}"));
     }
 
     [Fact]
@@ -553,9 +553,9 @@ Append to `Daylane.Tests/MigrationsTests.cs`:
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
-        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(temp.Path_)!, "*.bak.*"));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(temp.DatabasePath)!, "*.bak.*"));
     }
 ```
 
@@ -724,7 +724,7 @@ public class SchemaV2Tests
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         var columns = ColumnNames(connection, "ActivitySegment");
         Assert.Contains("WindowTitle", columns);
@@ -744,7 +744,7 @@ public class SchemaV2Tests
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         var columns = ColumnNames(connection, "OpenAppSegment");
         Assert.Contains("LocalDate", columns);
@@ -760,12 +760,12 @@ public class SchemaV2Tests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        ApplyV1Only(connection, temp.Path_);
+        ApplyV1Only(connection, temp.DatabasePath);
 
         var startUtc = new DateTime(2026, 3, 15, 22, 40, 0, DateTimeKind.Utc);
         InsertV1Segment(connection, startUtc.ToString("O"), "code", isIdle: 0);
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         DateTime expectedLocal = TimeZoneInfo.ConvertTimeFromUtc(startUtc, TimeZoneInfo.Local);
         using var read = connection.CreateCommand();
@@ -781,10 +781,10 @@ public class SchemaV2Tests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        ApplyV1Only(connection, temp.Path_);
+        ApplyV1Only(connection, temp.DatabasePath);
         InsertV1Segment(connection, "2026-09-01T10:00:00.0000000Z", "code", isIdle: 0);
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         using var read = connection.CreateCommand();
         read.CommandText = "SELECT Id, RemoteId FROM ActivitySegment;";
@@ -798,7 +798,7 @@ public class SchemaV2Tests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         InsertV1Segment(connection, "2026-09-02T08:00:00.0000000Z", "chrome", isIdle: 0);
 
@@ -814,10 +814,10 @@ public class SchemaV2Tests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        ApplyV1Only(connection, temp.Path_);
+        ApplyV1Only(connection, temp.DatabasePath);
         InsertV1Segment(connection, "2026-09-01T10:00:00.0000000Z", "code", isIdle: 0);
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         using var read = connection.CreateCommand();
         read.CommandText = "SELECT UpdatedAt FROM ActivitySegment;";
@@ -948,7 +948,7 @@ Append to `Daylane.Tests/SchemaV2Tests.cs`:
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         var columns = ColumnNames(connection, "DailyInput");
         Assert.Contains("DeviceId", columns);
@@ -964,7 +964,7 @@ Append to `Daylane.Tests/SchemaV2Tests.cs`:
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        ApplyV1Only(connection, temp.Path_);
+        ApplyV1Only(connection, temp.DatabasePath);
 
         using (var insert = connection.CreateCommand())
         {
@@ -973,7 +973,7 @@ Append to `Daylane.Tests/SchemaV2Tests.cs`:
             insert.ExecuteNonQuery();
         }
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         using var read = connection.CreateCommand();
         read.CommandText =
@@ -990,7 +990,7 @@ Append to `Daylane.Tests/SchemaV2Tests.cs`:
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         using var insert = connection.CreateCommand();
         insert.CommandText = """
@@ -1144,7 +1144,7 @@ public class SchemaV2TablesTests
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         Assert.Equal(
             1L,
@@ -1157,7 +1157,7 @@ public class SchemaV2TablesTests
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM SettingsStore WHERE Id = 1;"));
         Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM AuthState WHERE Id = 1;"));
@@ -1173,7 +1173,7 @@ public class SchemaV2TablesTests
         using var temp = new TempDatabase();
         using var connection = temp.Open();
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         Assert.Equal(5L, Scalar(connection, "SELECT COUNT(*) FROM Categories WHERE Builtin = 1;"));
         Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM Categories WHERE Id = 'other';"));
@@ -1184,11 +1184,11 @@ public class SchemaV2TablesTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, [Migrations.Scripts[0]], temp.Path_);
+        Migrations.Apply(connection, [Migrations.Scripts[0]], temp.DatabasePath);
         InsertV1Segment(connection, "code", isIdle: 0);
         InsertV1Segment(connection, "chrome", isIdle: 0);
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         Assert.Equal(2L, Scalar(connection, "SELECT COUNT(*) FROM AppGroups;"));
         Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM AppGroups WHERE Id = 'code';"));
@@ -1202,11 +1202,11 @@ public class SchemaV2TablesTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, [Migrations.Scripts[0]], temp.Path_);
+        Migrations.Apply(connection, [Migrations.Scripts[0]], temp.DatabasePath);
         InsertV1Segment(connection, "code", isIdle: 0);
         InsertV1Segment(connection, "Idle", isIdle: 1);
 
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM AppGroups WHERE Id = 'Idle';"));
         Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM AppGroups;"));
@@ -1372,7 +1372,7 @@ public class DeviceIdentityTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         string deviceId = DeviceIdentity.EnsureSelfDevice(connection);
 
@@ -1385,7 +1385,7 @@ public class DeviceIdentityTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         string first = DeviceIdentity.EnsureSelfDevice(connection);
         string second = DeviceIdentity.EnsureSelfDevice(connection);
@@ -1399,7 +1399,7 @@ public class DeviceIdentityTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
 
         using (var seed = connection.CreateCommand())
         {
@@ -1569,7 +1569,7 @@ public class SettingsServiceTests
     {
         var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
         return temp;
     }
 
@@ -1703,6 +1703,12 @@ internal sealed record DaylaneSettings
     /// <summary>0 keeps history forever, which is the behavior before this setting existed.</summary>
     [JsonPropertyName("retentionDays")]
     public int RetentionDays { get; init; }
+
+    /// <summary>Set once the pre-settings-store config.ini has been imported. A dedicated flag
+    /// rather than "is the threshold still the default", so a user who deliberately chose the
+    /// default value is not silently overwritten by a stale config.ini.</summary>
+    [JsonPropertyName("legacyConfigImported")]
+    public bool LegacyConfigImported { get; init; }
 
     /// <summary>Clamps anything a hand-edited store or an older build could have written.</summary>
     public DaylaneSettings Normalize() => this with
@@ -1915,6 +1921,40 @@ public class LegacyConfigImportTests
         Assert.Null(LegacyConfig.ReadThresholdMinutes(
             Path.Combine(Path.GetTempPath(), "daylane-tests", "definitely-absent", "config.ini")));
     }
+
+    [Fact]
+    public void LegacyConfigImported_DefaultsToFalseAndSurvivesAWrite()
+    {
+        using var temp = new TempDatabase();
+        using (var connection = temp.Open())
+        {
+            Migrations.Apply(connection, temp.DatabasePath);
+        }
+
+        var service = new SettingsService(temp.ConnectionString);
+        Assert.False(service.Current.LegacyConfigImported);
+
+        service.Update(s => s with { LegacyConfigImported = true });
+
+        Assert.True(new SettingsService(temp.ConnectionString).Current.LegacyConfigImported);
+    }
+
+    [Fact]
+    public void LegacyConfigImported_OnceSet_StopsTheImportOverwritingAChosenValue()
+    {
+        using var temp = new TempDatabase();
+        using (var connection = temp.Open())
+        {
+            Migrations.Apply(connection, temp.DatabasePath);
+        }
+
+        var service = new SettingsService(temp.ConnectionString);
+        service.Update(s => s with { IdleThresholdMinutes = 15, LegacyConfigImported = true });
+
+        // Re-reading must not reset a deliberately chosen value that happens to equal the default.
+        Assert.Equal(15, new SettingsService(temp.ConnectionString).Current.IdleThresholdMinutes);
+        Assert.True(new SettingsService(temp.ConnectionString).Current.LegacyConfigImported);
+    }
 }
 ```
 
@@ -2012,22 +2052,24 @@ Add the property and the import, which runs only while the stored value is still
 
     private void ImportLegacyConfigOnce()
     {
-        if (Settings.Current.IdleThresholdMinutes != 15)
+        if (Settings.Current.LegacyConfigImported)
         {
             return;
         }
 
-        if (LegacyConfig.ReadThresholdMinutes(LegacyConfig.DefaultPath) is int minutes)
+        int? minutes = LegacyConfig.ReadThresholdMinutes(LegacyConfig.DefaultPath);
+        Settings.Update(s => s with
         {
-            Settings.Update(s => s with { IdleThresholdMinutes = minutes });
-        }
+            IdleThresholdMinutes = minutes ?? s.IdleThresholdMinutes,
+            LegacyConfigImported = true
+        });
     }
 ```
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `dotnet test Daylane.Tests/Daylane.Tests.csproj`
-Expected: PASS, 53 tests.
+Expected: PASS, 55 tests.
 
 - [ ] **Step 7: Verify the app still detects idle**
 
@@ -2115,6 +2157,18 @@ public class ThemeTokenTests
 ```
 
 Add the Avalonia reference the test needs — `Daylane.Tests.csproj` already gets it transitively through the project reference, so no package edit is required.
+
+**If `new App()` + `AvaloniaXamlLoader.Load` throws** because no Avalonia platform is
+initialized (likely — `<FluentTheme />` may need a running app), you have a free choice of
+mechanism, as long as the test still proves *both variants define all 25 tokens*:
+
+- add `Avalonia.Headless.XUnit` and mark the tests `[AvaloniaTest]`; or
+- skip the Avalonia runtime entirely and assert over `App.axaml` as XML — load the file,
+  select each `ResourceDictionary` under `ThemeDictionaries` by its `x:Key` (`Light`,
+  `Dark`), and assert every required token appears as a `SolidColorBrush x:Key` in both.
+
+The XML route is the lighter of the two and tests exactly the property that matters. Pick
+whichever actually runs; do not spend rounds fighting platform initialization.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -2255,6 +2309,12 @@ key."
 - Produces: `internal sealed record TimelinePalette` with `Text`, `Muted`, `Accent`, `GridMinor`, `GridMajor`, `Border`, `IdleFill`, `IdleStripe`, `IdleSoftFill`, `IdleSoftStripe` (all `Color`), plus `static TimelinePalette Resolve(IResourceHost host, ThemeVariant variant)`.
 
 - [ ] **Step 1: Write the failing test**
+
+The same platform-initialization caveat as Task 10 applies: if `new App()` plus
+`AvaloniaXamlLoader.Load` will not run headlessly, resolve the palette against a
+`ResourceDictionary` you build in the test (or use `Avalonia.Headless.XUnit`) rather than
+against a full `App`. What must be proven is that `Resolve` returns the light values under
+`ThemeVariant.Light` and the dark values under `ThemeVariant.Dark`.
 
 Create `Daylane.Tests/TimelinePaletteTests.cs`:
 
@@ -2650,7 +2710,14 @@ Add the command beside the two at `:75-76`:
 
 Raise `IsSettingsSelected` wherever `IsDaySelected` and `IsInsightsSelected` are raised in the `SelectedTab` setter (`:296-336`).
 
-Take the service in the constructor and expose one property per setting. `Appearance` shown as three radio-style options; the rest as toggles and numeric fields:
+Reach the settings service through the tracking service the view model already receives —
+`TrackingService.Settings` exists as of Task 9, so keep the constructor at one parameter
+(`MainWindowViewModel(TrackingService tracking)`) and assign
+`_settings = tracking.Settings`. A second constructor parameter for something already
+reachable is redundant.
+
+Expose one property per setting. `Appearance` shown as three radio-style options; the rest
+as toggles and numeric fields:
 
 ```csharp
     private readonly SettingsService _settings;
@@ -2731,7 +2798,8 @@ In `App.axaml.cs`, after `_trackingService` is constructed (`:37-40`) and before
             });
 ```
 
-Pass `settings` into `new MainWindowViewModel(_trackingService, settings)`.
+`new MainWindowViewModel(_trackingService)` is unchanged — the view model reads
+`TrackingService.Settings` itself.
 
 In `MainWindow.axaml.cs`, apply the titlebar once the handle exists:
 
@@ -2821,7 +2889,7 @@ public class RetentionPrunerTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
         InsertSegment(connection, "2020-01-01");
 
         int deleted = RetentionPruner.Prune(connection, 0, new DateTime(2026, 9, 8));
@@ -2835,7 +2903,7 @@ public class RetentionPrunerTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
         InsertSegment(connection, "2026-09-08");
         InsertSegment(connection, "2026-09-01");
         InsertSegment(connection, "2026-06-01");
@@ -2851,7 +2919,7 @@ public class RetentionPrunerTests
     {
         using var temp = new TempDatabase();
         using var connection = temp.Open();
-        Migrations.Apply(connection, temp.Path_);
+        Migrations.Apply(connection, temp.DatabasePath);
         InsertSegment(connection, "2026-08-09");
 
         int deleted = RetentionPruner.Prune(connection, 30, new DateTime(2026, 9, 8));
@@ -2950,7 +3018,7 @@ Add to `DailyStatsStore`:
 - [ ] **Step 6: Run the full suite**
 
 Run: `dotnet test Daylane.Tests/Daylane.Tests.csproj`
-Expected: PASS, 87 tests.
+Expected: PASS, 89 tests.
 
 - [ ] **Step 7: Commit**
 
@@ -3065,4 +3133,4 @@ replaces them."
 
 **Type consistency.** `Migrations.Apply` keeps one signature across Tasks 2–7. `DaylaneSettings` property names in Task 8 match every binding in Task 13. `TimelinePalette` field names in Task 11 match the tokens defined in Task 10. `DeviceIdentity.Placeholder` and the `'local'` literal in Tasks 5–6 agree. `RetentionPruner.Prune` takes `todayLocal` in both its definition and its call site.
 
-**Test count** rises across tasks 1–14: 1 → 5 → 8 → 14 → 17 → 32 → 35 → 47 → 53 → 78 (Task 10 contributes 25 theory cases) → 80 → 81 → 84 → 87. If a task's full-suite run reports fewer than its step says, a test was dropped rather than added — find it before moving on.
+**Test count** rises across tasks 1–14: 1 → 5 → 8 → 14 → 17 → 32 → 35 → 47 → 55 → 80 (Task 10 contributes 25 theory cases) → 82 → 83 → 86 → 89. If a task's full-suite run reports fewer than its step says, a test was dropped rather than added — find it before moving on.
