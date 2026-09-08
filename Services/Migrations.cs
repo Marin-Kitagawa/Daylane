@@ -23,26 +23,65 @@ internal static class Migrations
             return;
         }
 
+        // Only back up when upgrading data that already exists. A fresh database has
+        // nothing to lose, and writing a .bak of an empty file just litters the folder.
+        if (version > 0 && databasePath is not null && File.Exists(databasePath))
+        {
+            TryBackup(databasePath, version);
+        }
+
         for (int i = version; i < scripts.Length; i++)
         {
             using var transaction = connection.BeginTransaction();
-            using (var command = connection.CreateCommand())
+            try
             {
-                command.Transaction = transaction;
-                command.CommandText = scripts[i];
-                command.ExecuteNonQuery();
-            }
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = scripts[i];
+                    command.ExecuteNonQuery();
+                }
 
-            // user_version lives in the database header and is transactional, so a
-            // rollback leaves the version where it was.
-            using (var setVersion = connection.CreateCommand())
+                // user_version lives in the database header and is transactional, so a
+                // rollback leaves the version where it was.
+                using (var setVersion = connection.CreateCommand())
+                {
+                    setVersion.Transaction = transaction;
+                    setVersion.CommandText = $"PRAGMA user_version = {i + 1};";
+                    setVersion.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+            }
+            catch (SqliteException ex)
             {
-                setVersion.Transaction = transaction;
-                setVersion.CommandText = $"PRAGMA user_version = {i + 1};";
-                setVersion.ExecuteNonQuery();
-            }
+                transaction.Rollback();
 
-            transaction.Commit();
+                string backupNote = databasePath is null
+                    ? string.Empty
+                    : $" A backup of the previous database was kept at \"{databasePath}.bak.v{version}\".";
+
+                throw new InvalidOperationException(
+                    $"Daylane could not upgrade its database to version {i + 1}: {ex.Message}"
+                    + backupNote
+                    + " The database was left unchanged.",
+                    ex);
+            }
+        }
+    }
+
+    private static void TryBackup(string databasePath, int fromVersion)
+    {
+        try
+        {
+            File.Copy(databasePath, $"{databasePath}.bak.v{fromVersion}", overwrite: true);
+        }
+        catch (IOException)
+        {
+            // A backup we cannot write must not block an upgrade the user needs.
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 

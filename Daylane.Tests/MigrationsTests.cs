@@ -79,4 +79,56 @@ public class MigrationsTests
         Assert.Equal(42L, reader.GetInt64(0));
         Assert.Equal(7L, reader.GetInt64(1));
     }
+
+    [Fact]
+    public void Apply_WhenScriptFails_RollsBackAndKeepsVersion()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+        Migrations.Apply(connection, temp.DatabasePath);
+        int before = Migrations.ReadUserVersion(connection);
+
+        string[] scripts =
+        [
+            .. Migrations.Scripts,
+            "CREATE TABLE Good (Id INTEGER); SELECT this_is_not_valid_sql();"
+        ];
+
+        Assert.Throws<InvalidOperationException>(
+            () => Migrations.Apply(connection, scripts, temp.DatabasePath));
+
+        Assert.Equal(before, Migrations.ReadUserVersion(connection));
+        Assert.DoesNotContain("Good", TableNames(connection));
+    }
+
+    [Fact]
+    public void Apply_WhenUpgradingExistingDatabase_WritesBackup()
+    {
+        using var temp = new TempDatabase();
+        using (var connection = temp.Open())
+        {
+            Migrations.Apply(connection, temp.DatabasePath);
+        }
+
+        SqliteConnection.ClearAllPools();
+        string[] scripts = [.. Migrations.Scripts, "CREATE TABLE Later (Id INTEGER);"];
+
+        using (var connection = temp.Open())
+        {
+            Migrations.Apply(connection, scripts, temp.DatabasePath);
+        }
+
+        Assert.True(File.Exists($"{temp.DatabasePath}.bak.v{Migrations.CurrentVersion}"));
+    }
+
+    [Fact]
+    public void Apply_OnFreshDatabase_WritesNoBackup()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+
+        Migrations.Apply(connection, temp.DatabasePath);
+
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(temp.DatabasePath)!, "*.bak.*"));
+    }
 }
