@@ -4,6 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:Daylane.ViewModels"
         xmlns:controls="using:Daylane.Controls"
+        xmlns:conv="using:Daylane.Converters"
         mc:Ignorable="d"
         d:DesignWidth="1400"
         d:DesignHeight="860"
@@ -17,6 +18,10 @@
         MinHeight="680"
         WindowState="Maximized"
         WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <conv:StringEqualsConverter x:Key="StringEqualsConverter" />
+    </Window.Resources>
 
     <Grid RowDefinitions="72,*">
         <Border Background="{DynamicResource AppSurfaceBrush}"
@@ -47,6 +52,11 @@
                                         Content="Insights"
                                         Command="{Binding SelectInsightsCommand}"
                                         Classes.active="{Binding IsInsightsSelected}" />
+                                <Button x:Name="SettingsTabButton"
+                                        Classes="tab"
+                                        Content="Settings"
+                                        Command="{Binding SelectSettingsCommand}"
+                                        Classes.active="{Binding IsSettingsSelected}" />
                             </StackPanel>
                         </Panel>
                     </Border>
@@ -821,6 +831,112 @@
                             </StackPanel>
                         </Panel>
                     </Grid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Settings -->
+        <ScrollViewer Grid.Row="1"
+                      Margin="16"
+                      IsVisible="{Binding IsSettingsSelected}"
+                      VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12" MaxWidth="640">
+                <Border Classes="panel" Padding="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="Appearance" FontSize="13" FontWeight="SemiBold" />
+                        <StackPanel Orientation="Horizontal" Spacing="20">
+                            <RadioButton GroupName="Appearance"
+                                         Content="System"
+                                         IsChecked="{Binding Appearance, Converter={StaticResource StringEqualsConverter}, ConverterParameter=system}" />
+                            <RadioButton GroupName="Appearance"
+                                         Content="Light"
+                                         IsChecked="{Binding Appearance, Converter={StaticResource StringEqualsConverter}, ConverterParameter=light}" />
+                            <RadioButton GroupName="Appearance"
+                                         Content="Dark"
+                                         IsChecked="{Binding Appearance, Converter={StaticResource StringEqualsConverter}, ConverterParameter=dark}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="panel" Padding="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="Tracking" FontSize="13" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Track activity" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           Text="Pause to stop recording new activity." />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          IsChecked="{Binding TrackingEnabled}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Idle threshold (minutes)" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           Text="Minutes without input before a session is marked Away." />
+                            </StackPanel>
+                            <NumericUpDown Grid.Column="1"
+                                           Minimum="1"
+                                           Maximum="240"
+                                           Width="130"
+                                           FormatString="0"
+                                           Value="{Binding IdleThresholdMinutes}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Keep history for (days)" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           Text="0 keeps history forever." />
+                            </StackPanel>
+                            <NumericUpDown Grid.Column="1"
+                                           Minimum="0"
+                                           Width="130"
+                                           FormatString="0"
+                                           Value="{Binding RetentionDays}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="panel" Padding="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="Startup" FontSize="13" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Start with Windows" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           Text="Launch Daylane automatically when you sign in." />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          IsChecked="{Binding AutoStart}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Show window on startup" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           Text="Otherwise Daylane starts minimized to the tray." />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          IsChecked="{Binding ShowWindowOnAutoStart}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Minimize to tray" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           Text="Closing the window keeps Daylane running in the tray." />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          IsChecked="{Binding MinimizeToTray}" />
+                        </Grid>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </ScrollViewer>

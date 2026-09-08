@@ -47,6 +47,17 @@ public partial class App : Application
 
             StartupRegistration.RefreshRegisteredPathIfEnabled();
 
+            var settings = _trackingService.Settings;
+            RequestedThemeVariant = ThemeSelector.ToVariant(settings.Current.Appearance);
+            settings.Changed += (_, current) => Dispatcher.UIThread.Post(() =>
+            {
+                RequestedThemeVariant = ThemeSelector.ToVariant(current.Appearance);
+                if (_mainWindow is not null)
+                {
+                    WindowTheme.Apply(_mainWindow, ThemeSelector.IsDark(_mainWindow.ActualThemeVariant));
+                }
+            });
+
             var viewModel = new MainWindowViewModel(_trackingService);
             _mainWindow = new MainWindow
             {
@@ -158,11 +169,18 @@ public partial class App : Application
         };
         startupItem.Click += (_, _) =>
         {
+            // Route through SettingsService, the same path the Settings view uses, so the
+            // tray checkbox and the Settings tab can never disagree.
             bool enable = !StartupRegistration.IsEnabled();
             StartupRegistration.SetEnabled(enable);
-            startupItem.IsChecked = enable;
+            _trackingService?.Settings.Update(s => s with { AutoStart = StartupRegistration.IsEnabled() });
+            startupItem.IsChecked = StartupRegistration.IsEnabled();
         };
         menu.Items.Add(startupItem);
+
+        // The registry is authoritative and can be changed outside the app (or from the
+        // Settings tab), so refresh the checkbox from it right before the menu is shown.
+        menu.NeedsUpdate += (_, _) => startupItem.IsChecked = StartupRegistration.IsEnabled();
 
         menu.Items.Add(new NativeMenuItemSeparator());
         var exitItem = new NativeMenuItem { Header = "Exit" };

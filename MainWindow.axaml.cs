@@ -4,7 +4,9 @@ using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media.Transformation;
+using Avalonia.Styling;
 using Avalonia.Threading;
+using Daylane.Services;
 using Daylane.ViewModels;
 
 namespace Daylane;
@@ -43,6 +45,8 @@ public partial class MainWindow : Window
         TimelineScroll.SizeChanged += OnTimelineScrollSizeChanged;
         PeriodSegmentGroup.LayoutUpdated += (_, _) => SyncPeriodThumb();
         TabSegmentGroup.LayoutUpdated += (_, _) => SyncTabThumb();
+        ActualThemeVariantChanged += (_, _) =>
+            WindowTheme.Apply(this, ThemeSelector.IsDark(ActualThemeVariant));
 
         // Attach to content only so the ScrollViewer scrollbar keeps working.
         TimelineZoomSurface.AddHandler(PointerWheelChangedEvent, OnTimelinePointerWheel, handledEventsToo: true);
@@ -50,6 +54,12 @@ public partial class MainWindow : Window
         TimelineZoomSurface.AddHandler(PointerMovedEvent, OnTimelinePointerMoved, handledEventsToo: true);
         TimelineZoomSurface.AddHandler(PointerReleasedEvent, OnTimelinePointerReleased, handledEventsToo: true);
         TimelineZoomSurface.AddHandler(PointerCaptureLostEvent, OnTimelinePointerCaptureLost, handledEventsToo: true);
+    }
+
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        WindowTheme.Apply(this, ThemeSelector.IsDark(ActualThemeVariant));
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -123,7 +133,8 @@ public partial class MainWindow : Window
             ScrollTimelineToNow();
         }
         else if (e.PropertyName is nameof(MainWindowViewModel.InsightPeriodKind)
-                 or nameof(MainWindowViewModel.IsInsightsSelected))
+                 or nameof(MainWindowViewModel.IsInsightsSelected)
+                 or nameof(MainWindowViewModel.IsSettingsSelected))
         {
             Dispatcher.UIThread.Post(() =>
             {
@@ -135,7 +146,11 @@ public partial class MainWindow : Window
 
     private void SyncTabThumb()
     {
-        Button? target = _boundVm?.IsInsightsSelected == true ? InsightsTabButton : DayTabButton;
+        Button target = _boundVm?.IsSettingsSelected == true
+            ? SettingsTabButton
+            : _boundVm?.IsInsightsSelected == true
+                ? InsightsTabButton
+                : DayTabButton;
         SyncThumb(TabThumb, target, ref _tabThumbX, ref _tabThumbW, ref _tabThumbH);
     }
 

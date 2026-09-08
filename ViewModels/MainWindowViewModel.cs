@@ -13,7 +13,8 @@ namespace Daylane.ViewModels;
 internal enum AppTab
 {
     Day,
-    Insights
+    Insights,
+    Settings
 }
 
 internal enum InsightPeriod
@@ -44,6 +45,7 @@ internal static class IdlePalette
 internal sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     private readonly TrackingService _tracking;
+    private readonly SettingsService _settings;
     private readonly ObservableCollection<AppUsageItemViewModel> _appUsage = [];
     private readonly ObservableCollection<AppUsageItemViewModel> _insightAppUsage = [];
     private readonly ObservableCollection<ActivitySegmentItemViewModel> _segmentItems = [];
@@ -89,10 +91,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     public MainWindowViewModel(TrackingService tracking)
     {
         _tracking = tracking;
+        _settings = tracking.Settings;
         _tracking.PropertyChanged += OnTrackingPropertyChanged;
         OpenDataFolderCommand = new RelayCommand(() => OpenDataFolder(_tracking.DatabasePath));
         SelectDayCommand = new RelayCommand(() => SelectedTab = AppTab.Day);
         SelectInsightsCommand = new RelayCommand(() => SelectedTab = AppTab.Insights);
+        SelectSettingsCommand = new RelayCommand(() => SelectedTab = AppTab.Settings);
         SelectWeekPeriodCommand = new RelayCommand(() => InsightPeriodKind = InsightPeriod.Week);
         SelectMonthPeriodCommand = new RelayCommand(() => InsightPeriodKind = InsightPeriod.Month);
         PreviousDayCommand = new RelayCommand(() => SelectedDay = SelectedDay.AddDays(-1));
@@ -326,6 +330,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsDaySelected));
             OnPropertyChanged(nameof(IsInsightsSelected));
+            OnPropertyChanged(nameof(IsSettingsSelected));
             if (value == AppTab.Insights)
             {
                 RefreshInsights();
@@ -357,15 +362,120 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public bool IsInsightsSelected => SelectedTab == AppTab.Insights;
 
+    public bool IsSettingsSelected => SelectedTab == AppTab.Settings;
+
     public bool IsWeekPeriod => InsightPeriodKind == InsightPeriod.Week;
 
     public bool IsMonthPeriod => InsightPeriodKind == InsightPeriod.Month;
+
+    public string Appearance
+    {
+        get => _settings.Current.Appearance;
+        set
+        {
+            if (_settings.Current.Appearance == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { Appearance = value });
+            OnPropertyChanged();
+        }
+    }
+
+    public bool TrackingEnabled
+    {
+        get => _settings.Current.TrackingEnabled;
+        set
+        {
+            if (_settings.Current.TrackingEnabled == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { TrackingEnabled = value });
+            OnPropertyChanged();
+        }
+    }
+
+    public int IdleThresholdMinutes
+    {
+        get => _settings.Current.IdleThresholdMinutes;
+        set
+        {
+            if (_settings.Current.IdleThresholdMinutes == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { IdleThresholdMinutes = value });
+            OnPropertyChanged();
+        }
+    }
+
+    public int RetentionDays
+    {
+        get => _settings.Current.RetentionDays;
+        set
+        {
+            if (_settings.Current.RetentionDays == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { RetentionDays = value });
+            OnPropertyChanged();
+        }
+    }
+
+    public bool AutoStart
+    {
+        get => StartupRegistration.IsEnabled();
+        set
+        {
+            StartupRegistration.SetEnabled(value);
+            _settings.Update(s => s with { AutoStart = StartupRegistration.IsEnabled() });
+            OnPropertyChanged();
+        }
+    }
+
+    public bool ShowWindowOnAutoStart
+    {
+        get => _settings.Current.ShowWindowOnAutoStart;
+        set
+        {
+            if (_settings.Current.ShowWindowOnAutoStart == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { ShowWindowOnAutoStart = value });
+            OnPropertyChanged();
+        }
+    }
+
+    public bool MinimizeToTray
+    {
+        get => _settings.Current.MinimizeToTray;
+        set
+        {
+            if (_settings.Current.MinimizeToTray == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { MinimizeToTray = value });
+            OnPropertyChanged();
+        }
+    }
 
     public ICommand OpenDataFolderCommand { get; }
 
     public ICommand SelectDayCommand { get; }
 
     public ICommand SelectInsightsCommand { get; }
+
+    public ICommand SelectSettingsCommand { get; }
 
     public ICommand SelectWeekPeriodCommand { get; }
 
