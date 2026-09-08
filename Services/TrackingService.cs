@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Avalonia.Threading;
 using Daylane.Models;
@@ -35,13 +36,26 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         Settings = new SettingsService(_store.ConnectionString);
         LegacyConfig.ImportOnce(Settings, LegacyConfig.DefaultPath);
         IdleMonitor.Bind(Settings);
-        if (Settings.Current.RetentionDays > 0)
-        {
-            _store.PruneOldData(Settings.Current.RetentionDays);
-        }
-
         _trackingEnabled = Settings.Current.TrackingEnabled;
         _store.CloseOrphanOpenSegments(DateTime.UtcNow);
+
+        // Runs after CloseOrphanOpenSegments: a crash-orphaned open segment must be closed
+        // before retention can consider it for deletion, or a still-open row older than the
+        // window would be deleted out from under a session that never got to close it.
+        if (Settings.Current.RetentionDays > 0)
+        {
+            try
+            {
+                _store.PruneOldData(Settings.Current.RetentionDays);
+            }
+            catch (Exception ex)
+            {
+                // A prune failure (locked file, I/O error) must not block startup - the
+                // session should come up normally and simply retry pruning next launch.
+                Debug.WriteLine($"Retention prune failed at startup: {ex.Message}");
+            }
+        }
+
         _currentDateKey = TodayKey();
         (long keys, long clicks) = _store.GetTodayTotals();
         _keyPressCount = keys;

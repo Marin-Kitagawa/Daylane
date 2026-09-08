@@ -68,14 +68,17 @@ internal sealed class DailyStatsStore : IDisposable
             using var command = connection.CreateCommand();
             command.CommandText = """
                 INSERT INTO ActivitySegment (
-                    StartUtc, EndUtc, ProcessName, ExePath, DisplayName, IsIdle, KeyCount, MouseClickCount)
-                VALUES ($start, NULL, $process, $exe, $display, $idle, 0, 0);
+                    StartUtc, EndUtc, ProcessName, ExePath, DisplayName, IsIdle, KeyCount, MouseClickCount,
+                    LocalDate, LocalHour)
+                VALUES ($start, NULL, $process, $exe, $display, $idle, 0, 0, $localDate, $localHour);
                 """;
             command.Parameters.AddWithValue("$start", ToUtcText(startUtc));
             command.Parameters.AddWithValue("$process", app.ProcessName);
             command.Parameters.AddWithValue("$exe", app.ExePath);
             command.Parameters.AddWithValue("$display", app.DisplayName);
             command.Parameters.AddWithValue("$idle", app.IsIdle ? 1 : 0);
+            command.Parameters.AddWithValue("$localDate", ToLocalDateKey(startUtc));
+            command.Parameters.AddWithValue("$localHour", ToLocalHour(startUtc));
             command.ExecuteNonQuery();
 
             using var idCommand = connection.CreateCommand();
@@ -164,13 +167,15 @@ internal sealed class DailyStatsStore : IDisposable
 
             using var command = connection.CreateCommand();
             command.CommandText = """
-                INSERT INTO OpenAppSegment (StartUtc, EndUtc, ProcessName, ExePath, DisplayName)
-                VALUES ($start, NULL, $process, $exe, $display);
+                INSERT INTO OpenAppSegment (StartUtc, EndUtc, ProcessName, ExePath, DisplayName, LocalDate, LocalHour)
+                VALUES ($start, NULL, $process, $exe, $display, $localDate, $localHour);
                 """;
             command.Parameters.AddWithValue("$start", ToUtcText(startUtc));
             command.Parameters.AddWithValue("$process", app.ProcessName);
             command.Parameters.AddWithValue("$exe", app.ExePath);
             command.Parameters.AddWithValue("$display", app.DisplayName);
+            command.Parameters.AddWithValue("$localDate", ToLocalDateKey(startUtc));
+            command.Parameters.AddWithValue("$localHour", ToLocalHour(startUtc));
             command.ExecuteNonQuery();
 
             using var idCommand = connection.CreateCommand();
@@ -598,6 +603,11 @@ internal sealed class DailyStatsStore : IDisposable
 
     private static string ToLocalDateKey(DateTime timestampUtc) =>
         timestampUtc.ToLocalTime().ToString("yyyy-MM-dd");
+
+    // Matches the migration backfill's date(StartUtc, 'localtime') / strftime('%H', ...,
+    // 'localtime') so rows written before and after the migration agree on the same day/hour.
+    private static int ToLocalHour(DateTime timestampUtc) =>
+        timestampUtc.ToLocalTime().Hour;
 
     private static string ToUtcText(DateTime utc) =>
         DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("O");
