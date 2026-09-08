@@ -8,7 +8,7 @@ namespace Daylane.Services;
 /// </summary>
 internal static class Migrations
 {
-    internal static readonly string[] Scripts = [V1];
+    internal static readonly string[] Scripts = [V1, V2];
 
     internal static int CurrentVersion => Scripts.Length;
 
@@ -157,5 +157,67 @@ internal static class Migrations
 
         CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_ExePath_Start
             ON OpenAppSegment (ExePath, StartUtc);
+        """;
+
+    private const string V2 = """
+        ALTER TABLE ActivitySegment ADD COLUMN WindowTitle TEXT NULL;
+        ALTER TABLE ActivitySegment ADD COLUMN UrlHost     TEXT NULL;
+        ALTER TABLE ActivitySegment ADD COLUMN LocalDate   TEXT NULL;
+        ALTER TABLE ActivitySegment ADD COLUMN LocalHour   INTEGER NULL;
+        ALTER TABLE ActivitySegment ADD COLUMN DeviceId    TEXT NOT NULL DEFAULT 'local';
+        ALTER TABLE ActivitySegment ADD COLUMN RemoteId    TEXT NULL;
+        ALTER TABLE ActivitySegment ADD COLUMN UpdatedAt   TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z';
+        ALTER TABLE ActivitySegment ADD COLUMN Origin      TEXT NOT NULL DEFAULT 'local';
+        ALTER TABLE ActivitySegment ADD COLUMN Excluded    INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE OpenAppSegment ADD COLUMN LocalDate TEXT NULL;
+        ALTER TABLE OpenAppSegment ADD COLUMN LocalHour INTEGER NULL;
+        ALTER TABLE OpenAppSegment ADD COLUMN DeviceId  TEXT NOT NULL DEFAULT 'local';
+        ALTER TABLE OpenAppSegment ADD COLUMN RemoteId  TEXT NULL;
+        ALTER TABLE OpenAppSegment ADD COLUMN UpdatedAt TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z';
+        ALTER TABLE OpenAppSegment ADD COLUMN Origin    TEXT NOT NULL DEFAULT 'local';
+
+        -- 'localtime' resolves each timestamp with the OS rules in force at that instant,
+        -- so spans either side of a DST change land on the right calendar day.
+        UPDATE ActivitySegment
+           SET LocalDate = date(StartUtc, 'localtime'),
+               LocalHour = CAST(strftime('%H', StartUtc, 'localtime') AS INTEGER),
+               UpdatedAt = COALESCE(EndUtc, StartUtc)
+         WHERE LocalDate IS NULL;
+
+        UPDATE OpenAppSegment
+           SET LocalDate = date(StartUtc, 'localtime'),
+               LocalHour = CAST(strftime('%H', StartUtc, 'localtime') AS INTEGER),
+               UpdatedAt = COALESCE(EndUtc, StartUtc)
+         WHERE LocalDate IS NULL;
+
+        -- The triggers below are AFTER INSERT only, so rows that already existed would
+        -- keep RemoteId NULL forever and be re-pulled as duplicates on the first sync.
+        UPDATE ActivitySegment SET RemoteId = Id WHERE RemoteId IS NULL;
+        UPDATE OpenAppSegment   SET RemoteId = Id WHERE RemoteId IS NULL;
+
+        CREATE INDEX IF NOT EXISTS IX_ActivitySegment_LocalDate
+            ON ActivitySegment (LocalDate);
+        CREATE INDEX IF NOT EXISTS IX_ActivitySegment_LocalDateHour
+            ON ActivitySegment (LocalDate, LocalHour);
+        CREATE UNIQUE INDEX IF NOT EXISTS UX_ActivitySegment_Device_Remote
+            ON ActivitySegment (DeviceId, RemoteId);
+
+        CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_LocalDate
+            ON OpenAppSegment (LocalDate);
+        CREATE UNIQUE INDEX IF NOT EXISTS UX_OpenAppSegment_Device_Remote
+            ON OpenAppSegment (DeviceId, RemoteId);
+
+        CREATE TRIGGER IF NOT EXISTS TR_ActivitySegment_RemoteId
+        AFTER INSERT ON ActivitySegment WHEN NEW.RemoteId IS NULL
+        BEGIN
+            UPDATE ActivitySegment SET RemoteId = NEW.Id WHERE Id = NEW.Id;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS TR_OpenAppSegment_RemoteId
+        AFTER INSERT ON OpenAppSegment WHEN NEW.RemoteId IS NULL
+        BEGIN
+            UPDATE OpenAppSegment SET RemoteId = NEW.Id WHERE Id = NEW.Id;
+        END;
         """;
 }
