@@ -234,5 +234,90 @@ internal static class Migrations
 
         DROP TABLE DailyInput;
         ALTER TABLE DailyInput_v2 RENAME TO DailyInput;
+
+        CREATE TABLE IF NOT EXISTS SettingsStore (
+            Id   INTEGER PRIMARY KEY CHECK (Id = 1),
+            Data TEXT NOT NULL
+        );
+        INSERT OR IGNORE INTO SettingsStore (Id, Data) VALUES (1, '{}');
+
+        CREATE TABLE IF NOT EXISTS SuperCategories (
+            Id TEXT PRIMARY KEY, Name TEXT NOT NULL, Color TEXT NOT NULL,
+            Icon TEXT NOT NULL DEFAULT 'Layers', SortOrder INTEGER NOT NULL DEFAULT 0,
+            UpdatedAt TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z', DeletedAt TEXT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS Categories (
+            Id TEXT PRIMARY KEY, Name TEXT NOT NULL, Color TEXT NOT NULL,
+            Icon TEXT NOT NULL DEFAULT 'Tag', Builtin INTEGER NOT NULL DEFAULT 0,
+            SortOrder INTEGER NOT NULL DEFAULT 0, SuperCategoryId TEXT NULL,
+            UpdatedAt TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z', DeletedAt TEXT NULL
+        );
+
+        INSERT OR IGNORE INTO Categories (Id, Name, Color, Icon, Builtin, SortOrder) VALUES
+            ('work',   'Work',          '#2F9E6B', 'Briefcase', 1, 0),
+            ('code',   'Development',   '#6366F1', 'Code',      1, 1),
+            ('browse', 'Browsing',      '#F59E0B', 'Globe',     1, 2),
+            ('other',  'Uncategorized', '#9CA3AF', 'Tag',       1, 3),
+            ('hidden', 'Hidden',        '#6B7280', 'EyeOff',    1, 4);
+
+        CREATE TABLE IF NOT EXISTS AppGroups (
+            Id TEXT PRIMARY KEY, DisplayName TEXT NOT NULL, CategoryId TEXT NULL,
+            UpdatedAt TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z', DeletedAt TEXT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS AppGroupMembers (
+            ProcessName TEXT PRIMARY KEY,
+            GroupId TEXT NOT NULL REFERENCES AppGroups(Id),
+            UpdatedAt TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z', DeletedAt TEXT NULL
+        );
+        CREATE INDEX IF NOT EXISTS IX_AppGroupMembers_Group ON AppGroupMembers (GroupId);
+
+        -- Group id equals the process name, so two devices independently arrive at the
+        -- same id with no coordination. IsIdle = 0 keeps the synthetic 'Idle' process
+        -- (Models/ForegroundApp.cs) out of the app list: away time is not an app.
+        INSERT OR IGNORE INTO AppGroups (Id, DisplayName)
+            SELECT ProcessName, MIN(DisplayName) FROM ActivitySegment
+             WHERE IsIdle = 0 GROUP BY ProcessName
+            UNION
+            SELECT ProcessName, MIN(DisplayName) FROM OpenAppSegment
+             GROUP BY ProcessName;
+
+        INSERT OR IGNORE INTO AppGroupMembers (ProcessName, GroupId)
+            SELECT Id, Id FROM AppGroups;
+
+        CREATE TABLE IF NOT EXISTS ProcessPaths (
+            ProcessName TEXT PRIMARY KEY, ExePath TEXT NOT NULL, SeenAt TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS AppIcons (
+            ProcessName TEXT PRIMARY KEY, IconPng BLOB NOT NULL,
+            UpdatedAt TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z', DeletedAt TEXT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS Devices (
+            DeviceId TEXT PRIMARY KEY, DisplayName TEXT NOT NULL,
+            Color TEXT NOT NULL DEFAULT '#2F9E6B', Icon TEXT NOT NULL DEFAULT 'Monitor',
+            Os TEXT NULL, LastSeenAt TEXT NULL, IsSelf INTEGER NOT NULL DEFAULT 0,
+            UpdatedAt TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z', DeletedAt TEXT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS SyncOutbox (
+            Id INTEGER PRIMARY KEY AUTOINCREMENT, Op TEXT NOT NULL, Entity TEXT NOT NULL,
+            EntityPk TEXT NOT NULL, Payload TEXT NOT NULL, CreatedAt TEXT NOT NULL,
+            Attempts INTEGER NOT NULL DEFAULT 0, LastError TEXT NULL, NextRetryAt TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS IX_SyncOutbox_Due ON SyncOutbox (NextRetryAt);
+
+        CREATE TABLE IF NOT EXISTS SyncCursor (
+            Entity TEXT PRIMARY KEY,
+            LastPulledAt TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'
+        );
+
+        CREATE TABLE IF NOT EXISTS AuthState (
+            Id INTEGER PRIMARY KEY CHECK (Id = 1), Uid TEXT NULL, Email TEXT NULL,
+            RefreshTokenEnc BLOB NULL, AccessToken TEXT NULL, ExpiresAt TEXT NULL
+        );
+        INSERT OR IGNORE INTO AuthState (Id) VALUES (1);
         """;
 }
