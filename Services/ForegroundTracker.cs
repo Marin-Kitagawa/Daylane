@@ -19,7 +19,6 @@ internal sealed class ForegroundTracker : IDisposable
 
     public ForegroundTracker()
     {
-        IdleMonitor.Load();
         _timer = new Timer(_ => Poll(), null, Timeout.Infinite, Timeout.Infinite);
     }
 

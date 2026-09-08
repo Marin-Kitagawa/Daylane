@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Runtime.InteropServices;
 
 namespace Daylane.Services;
@@ -13,41 +12,13 @@ internal static class IdleMonitor
     public const int MinThresholdMinutes = 1;
     public const int MaxThresholdMinutes = 240;
 
-    private static readonly string ConfigPath =
-        Path.Combine(AppContext.BaseDirectory, "config.ini");
+    private static SettingsService? _settings;
 
-    public static TimeSpan Threshold { get; private set; } = TimeSpan.FromMinutes(DefaultThresholdMinutes);
+    public static TimeSpan Threshold => TimeSpan.FromMinutes(
+        _settings?.Current.IdleThresholdMinutes ?? DefaultThresholdMinutes);
 
-    public static void Load()
-    {
-        int minutes = DefaultThresholdMinutes;
-        try
-        {
-            if (File.Exists(ConfigPath))
-            {
-                foreach (string raw in File.ReadAllLines(ConfigPath))
-                {
-                    string line = raw.Trim();
-                    if (line.StartsWith("threshold_minutes", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int eq = line.IndexOf('=');
-                        if (eq >= 0
-                            && int.TryParse(line[(eq + 1)..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
-                            && parsed is >= MinThresholdMinutes and <= MaxThresholdMinutes)
-                        {
-                            minutes = parsed;
-                        }
-                    }
-                }
-            }
-        }
-        catch (IOException)
-        {
-            // Keep default.
-        }
-
-        Threshold = TimeSpan.FromMinutes(minutes);
-    }
+    /// <summary>Reads the threshold live, so changing it in Settings needs no restart.</summary>
+    public static void Bind(SettingsService settings) => _settings = settings;
 
     public static double GetIdleSeconds()
     {

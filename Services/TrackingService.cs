@@ -30,6 +30,9 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     public TrackingService()
     {
         _store = new DailyStatsStore();
+        Settings = new SettingsService(_store.ConnectionString);
+        ImportLegacyConfigOnce();
+        IdleMonitor.Bind(Settings);
         _store.CloseOrphanOpenSegments(DateTime.UtcNow);
         _currentDateKey = TodayKey();
         (long keys, long clicks) = _store.GetTodayTotals();
@@ -49,6 +52,8 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    internal SettingsService Settings { get; }
 
     public string DatabasePath => _store.DatabasePath;
 
@@ -128,6 +133,21 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         var dailyActive = BuildDailyActiveMinutes(segments, start, end);
 
         return new RangeSnapshot(start, end, keys, clicks, appUsage, dailyActive);
+    }
+
+    private void ImportLegacyConfigOnce()
+    {
+        if (Settings.Current.LegacyConfigImported)
+        {
+            return;
+        }
+
+        int? minutes = LegacyConfig.ReadThresholdMinutes(LegacyConfig.DefaultPath);
+        Settings.Update(s => s with
+        {
+            IdleThresholdMinutes = minutes ?? s.IdleThresholdMinutes,
+            LegacyConfigImported = true
+        });
     }
 
     private void FlushOpenSegmentCounts()
