@@ -10,6 +10,11 @@ namespace Daylane.Tests;
 /// WindowTheme is split into a handle-taking overload that holds the only real logic (the
 /// no-handle guard) and a Window-taking overload that just extracts the handle, so that
 /// guard can be exercised directly with IntPtr.Zero, with no Avalonia runtime required.
+///
+/// That guard now covers both P/Invokes -- the DWM attribute and the SetWindowPos call that
+/// forces the caption to repaint on a live switch. Whether the caption actually redraws is
+/// not assertable here: it needs a real HWND and a visual check, so it is verified by driving
+/// the running app, not by this suite.
 /// </summary>
 public class WindowThemeTests
 {
