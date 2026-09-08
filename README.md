@@ -14,6 +14,8 @@ Windows 10/11 x64. Binaries: [Releases](../../releases). Unzip and run `Daylane.
 - Day timeline: foreground apps, Active/Away, input intensity
 - Week and month insights. Month can take several seconds to open, longer on slower machines.
 - Open-app time (visible windows, not only focus)
+- Light and dark theme, or follow Windows
+- Settings in-app; changes apply immediately
 - Tray icon; optional Start with Windows
 
 ## Data and privacy
@@ -22,16 +24,22 @@ Windows 10/11 x64. Binaries: [Releases](../../releases). Unzip and run `Daylane.
 
 Menu → Open data folder.
 
-## Config
+On first launch after upgrading, `daylane.db` is migrated and a backup of
+the previous version is written beside it as `daylane.db.bak.v1`. Delete
+it once you are satisfied the upgrade went cleanly.
 
-`config.ini` next to the exe:
+## Settings
 
-```ini
-[settings]
-threshold_minutes=5
-```
+Open the **Settings** tab. Changes apply immediately — no restart.
 
-Minutes without keyboard or mouse input before a span is marked Away (1–240). Restart after edits.
+- **Appearance** — Light, Dark, or follow Windows
+- **Away threshold** — minutes without keyboard or mouse input before a span is marked Away (1–240)
+- **Retention** — delete records older than N days; `0` keeps everything
+- **Startup** — start with Windows, start hidden in the tray, close button minimizes to tray
+
+Settings live in `daylane.db`. The old `config.ini` is read once on
+first launch after upgrading, to carry your `threshold_minutes` across;
+after that the file is ignored and can be deleted.
 
 ## Build
 
