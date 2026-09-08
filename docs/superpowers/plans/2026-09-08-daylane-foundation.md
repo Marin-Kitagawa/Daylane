@@ -419,7 +419,7 @@ internal static class Migrations
         CREATE INDEX IF NOT EXISTS IX_ActivitySegment_StartEnd
             ON ActivitySegment (StartUtc, EndUtc);
 
-        CREATE INDEX IF NOT EXISTS IX_ActivitySegment_ExeDatabasePathStart
+        CREATE INDEX IF NOT EXISTS IX_ActivitySegment_ExePath_Start
             ON ActivitySegment (ExePath, StartUtc);
 
         CREATE TABLE IF NOT EXISTS OpenAppSegment (
@@ -434,7 +434,7 @@ internal static class Migrations
         CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_StartEnd
             ON OpenAppSegment (StartUtc, EndUtc);
 
-        CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_ExeDatabasePathStart
+        CREATE INDEX IF NOT EXISTS IX_OpenAppSegment_ExePath_Start
             ON OpenAppSegment (ExePath, StartUtc);
         """;
 }
