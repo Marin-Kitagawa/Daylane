@@ -1,20 +1,69 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="Daylane.App"
-             RequestedThemeVariant="Light">
+             x:Class="Daylane.App">
 
     <Application.Resources>
-        <SolidColorBrush x:Key="AppBgBrush" Color="#F4F5F7" />
-        <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FFFFFF" />
-        <SolidColorBrush x:Key="AppSurfaceAltBrush" Color="#FAFBFC" />
-        <SolidColorBrush x:Key="AppBorderBrush" Color="#E5E7EB" />
-        <SolidColorBrush x:Key="AppTextBrush" Color="#111827" />
-        <SolidColorBrush x:Key="AppMutedBrush" Color="#6B7280" />
-        <SolidColorBrush x:Key="AppAccentBrush" Color="#2F9E6B" />
-        <SolidColorBrush x:Key="AppAccentSoftBrush" Color="#E8F7EF" />
-        <SolidColorBrush x:Key="AppIdleBrush" Color="#AEB4BE" />
-        <SolidColorBrush x:Key="AppIdleSoftBrush" Color="#EEF0F3" />
-        <SolidColorBrush x:Key="AppRowHoverBrush" Color="#F8FAFC" />
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="AppBgBrush" Color="#F4F5F7" />
+                    <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppSurfaceAltBrush" Color="#FAFBFC" />
+                    <SolidColorBrush x:Key="AppBorderBrush" Color="#E5E7EB" />
+                    <SolidColorBrush x:Key="AppTextBrush" Color="#111827" />
+                    <SolidColorBrush x:Key="AppMutedBrush" Color="#6B7280" />
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#2F9E6B" />
+                    <SolidColorBrush x:Key="AppAccentSoftBrush" Color="#E8F7EF" />
+                    <SolidColorBrush x:Key="AppIdleBrush" Color="#AEB4BE" />
+                    <SolidColorBrush x:Key="AppIdleSoftBrush" Color="#EEF0F3" />
+                    <SolidColorBrush x:Key="AppRowHoverBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="AppHoverBrush" Color="#EEF0F3" />
+                    <SolidColorBrush x:Key="AppSubtleBrush" Color="#F3F4F6" />
+                    <SolidColorBrush x:Key="AppSurfaceHoverBrush" Color="#F9FAFB" />
+                    <SolidColorBrush x:Key="AppThumbBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AppSegmentHoverBrush" Color="#E5E7EB" />
+                    <SolidColorBrush x:Key="AppAccentBorderBrush" Color="#CDEBD9" />
+                    <SolidColorBrush x:Key="AppAccentStrongBrush" Color="#DCF5E8" />
+                    <SolidColorBrush x:Key="AppGridMinorBrush" Color="#F3F4F6" />
+                    <SolidColorBrush x:Key="AppGridMajorBrush" Color="#E5E7EB" />
+                    <SolidColorBrush x:Key="AppIdleStripeBrush" Color="#A0A7B1" />
+                    <SolidColorBrush x:Key="AppIdleSoftStripeBrush" Color="#E4E7EB" />
+                    <SolidColorBrush x:Key="AppIntensity1Brush" Color="#322F9E6B" />
+                    <SolidColorBrush x:Key="AppIntensity2Brush" Color="#872F9E6B" />
+                    <SolidColorBrush x:Key="AppIntensity3Brush" Color="#DC2F9E6B" />
+                </ResourceDictionary>
+
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="AppBgBrush" Color="#0F1115" />
+                    <SolidColorBrush x:Key="AppSurfaceBrush" Color="#171A20" />
+                    <SolidColorBrush x:Key="AppSurfaceAltBrush" Color="#1C2027" />
+                    <SolidColorBrush x:Key="AppBorderBrush" Color="#2A2F39" />
+                    <SolidColorBrush x:Key="AppTextBrush" Color="#E5E7EB" />
+                    <SolidColorBrush x:Key="AppMutedBrush" Color="#9AA3B2" />
+                    <SolidColorBrush x:Key="AppAccentBrush" Color="#3DBE82" />
+                    <SolidColorBrush x:Key="AppAccentSoftBrush" Color="#16301F" />
+                    <SolidColorBrush x:Key="AppIdleBrush" Color="#5A616D" />
+                    <SolidColorBrush x:Key="AppIdleSoftBrush" Color="#23272F" />
+                    <SolidColorBrush x:Key="AppRowHoverBrush" Color="#1C2027" />
+                    <SolidColorBrush x:Key="AppHoverBrush" Color="#23272F" />
+                    <SolidColorBrush x:Key="AppSubtleBrush" Color="#1C2027" />
+                    <SolidColorBrush x:Key="AppSurfaceHoverBrush" Color="#1F242B" />
+                    <SolidColorBrush x:Key="AppThumbBrush" Color="#2A2F39" />
+                    <SolidColorBrush x:Key="AppSegmentHoverBrush" Color="#2A2F39" />
+                    <SolidColorBrush x:Key="AppAccentBorderBrush" Color="#1F4530" />
+                    <SolidColorBrush x:Key="AppAccentStrongBrush" Color="#1C3D28" />
+                    <SolidColorBrush x:Key="AppGridMinorBrush" Color="#1E222A" />
+                    <SolidColorBrush x:Key="AppGridMajorBrush" Color="#2A2F39" />
+                    <SolidColorBrush x:Key="AppIdleStripeBrush" Color="#6A717D" />
+                    <SolidColorBrush x:Key="AppIdleSoftStripeBrush" Color="#2C313A" />
+                    <SolidColorBrush x:Key="AppIntensity1Brush" Color="#323DBE82" />
+                    <SolidColorBrush x:Key="AppIntensity2Brush" Color="#873DBE82" />
+                    <SolidColorBrush x:Key="AppIntensity3Brush" Color="#DC3DBE82" />
+                </ResourceDictionary>
+
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 
     <Application.Styles>
@@ -65,7 +114,7 @@
 
         <Style Selector="Border.panel-accent">
             <Setter Property="Background" Value="{DynamicResource AppAccentSoftBrush}" />
-            <Setter Property="BorderBrush" Value="#CDEBD9" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="ClipToBounds" Value="True" />
@@ -91,7 +140,7 @@
         </Style>
 
         <Style Selector="Border.status-idle">
-            <Setter Property="Background" Value="#F3F4F6" />
+            <Setter Property="Background" Value="{DynamicResource AppSubtleBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="6" />
@@ -99,7 +148,7 @@
         </Style>
 
         <Style Selector="Border.segment-group">
-            <Setter Property="Background" Value="#F3F4F6" />
+            <Setter Property="Background" Value="{DynamicResource AppSubtleBrush}" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="3" />
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -119,7 +168,7 @@
         </Style>
 
         <Style Selector="Border.segment-thumb">
-            <Setter Property="Background" Value="White" />
+            <Setter Property="Background" Value="{DynamicResource AppThumbBrush}" />
         </Style>
 
         <Style Selector="Border.tab-thumb">
@@ -169,8 +218,8 @@
         </Style>
 
         <Style Selector="Button.tab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#EEF0F3" />
-            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Background" Value="{DynamicResource AppHoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
 
         <Style Selector="Button.tab.active">
@@ -194,8 +243,8 @@
         </Style>
 
         <Style Selector="Button.segment:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#E5E7EB" />
-            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Background" Value="{DynamicResource AppSegmentHoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
 
         <Style Selector="Button.segment.active">
@@ -227,7 +276,7 @@
         </Style>
 
         <Style Selector="Button.date-picker:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#F9FAFB" />
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceHoverBrush}" />
         </Style>
 
         <Style Selector="Button.date-nav">
@@ -245,7 +294,7 @@
         </Style>
 
         <Style Selector="Button.date-nav:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#F9FAFB" />
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceHoverBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
         </Style>
 
@@ -263,7 +312,7 @@
         </Style>
 
         <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#F3F4F6" />
+            <Setter Property="Background" Value="{DynamicResource AppSubtleBrush}" />
         </Style>
 
         <Style Selector="Border.app-row">
@@ -322,7 +371,7 @@
         </Style>
 
         <Style Selector="ListBox.plain-list ListBoxItem:selected:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#DCF5E8" />
+            <Setter Property="Background" Value="{DynamicResource AppAccentStrongBrush}" />
         </Style>
     </Application.Styles>
 </Application>

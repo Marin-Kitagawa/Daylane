@@ -19,7 +19,7 @@
         WindowStartupLocation="CenterScreen">
 
     <Grid RowDefinitions="72,*">
-        <Border Background="White"
+        <Border Background="{DynamicResource AppSurfaceBrush}"
                 BorderBrush="{DynamicResource AppBorderBrush}"
                 BorderThickness="0,0,0,1"
                 Padding="16,0">
@@ -215,7 +215,7 @@
                                         <TextBlock Text="Active / Away" FontSize="12" FontWeight="Medium" />
                                         <StackPanel Orientation="Horizontal" Spacing="10">
                                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <Border Classes="legend-swatch" Background="#2F9E6B" />
+                                                <Border Classes="legend-swatch" Background="{DynamicResource AppAccentBrush}" />
                                                 <TextBlock Classes="legend-label" Text="Active" />
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Spacing="4">
@@ -234,9 +234,9 @@
                                                 ToolTip.Tip="Keys and clicks per minute while Active">
                                         <TextBlock Text="Input" FontSize="12" FontWeight="Medium" />
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <Border Classes="legend-swatch" Background="#322F9E6B" />
-                                            <Border Classes="legend-swatch" Background="#872F9E6B" />
-                                            <Border Classes="legend-swatch" Background="#DC2F9E6B" />
+                                            <Border Classes="legend-swatch" Background="{DynamicResource AppIntensity1Brush}" />
+                                            <Border Classes="legend-swatch" Background="{DynamicResource AppIntensity2Brush}" />
+                                            <Border Classes="legend-swatch" Background="{DynamicResource AppIntensity3Brush}" />
                                             <TextBlock Classes="legend-label" Margin="2,0,0,0" Text="Light → heavy" />
                                         </StackPanel>
                                     </StackPanel>
@@ -250,7 +250,7 @@
                                           Focusable="True">
                                 <controls:TimelineZoomSurface x:Name="TimelineZoomSurface"
                                                               Zoom="{Binding TimelineZoom}">
-                                    <Grid RowDefinitions="26,72,63,63" Background="White">
+                                    <Grid RowDefinitions="26,72,63,63" Background="{DynamicResource AppSurfaceBrush}">
                                         <Border Background="{DynamicResource AppSurfaceAltBrush}"
                                                 BorderBrush="{DynamicResource AppBorderBrush}"
                                                 BorderThickness="0,0,0,1">
@@ -574,7 +574,7 @@
                                 BorderBrush="{DynamicResource AppBorderBrush}"
                                 BorderThickness="0,1,0,0"
                                 Padding="16,7"
-                                Background="#F3F4F6">
+                                Background="{DynamicResource AppSubtleBrush}">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                                 <StackPanel Orientation="Horizontal" Spacing="15" VerticalAlignment="Center">
                                     <TextBlock Classes="muted" FontSize="13" FontWeight="Medium"
