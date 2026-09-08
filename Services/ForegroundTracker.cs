@@ -41,6 +41,18 @@ internal sealed class ForegroundTracker : IDisposable
         _timer.Change(PollInterval, PollInterval);
     }
 
+    /// <summary>Pauses polling; Start() resumes it. Used to honor DaylaneSettings.TrackingEnabled
+    /// without tearing the tracker down.</summary>
+    public void Stop()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _timer.Change(Timeout.Infinite, Timeout.Infinite);
+    }
+
     public void Dispose()
     {
         if (_disposed)

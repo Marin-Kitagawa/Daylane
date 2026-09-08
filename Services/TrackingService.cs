@@ -25,6 +25,8 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     private OpenSegmentState? _openSegment;
     private string _currentAppName = "Starting…";
     private volatile bool _uiVisible = true;
+    private volatile bool _trackingEnabled;
+    private bool _started;
     private bool _disposed;
 
     public TrackingService()
@@ -33,6 +35,7 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         Settings = new SettingsService(_store.ConnectionString);
         LegacyConfig.ImportOnce(Settings, LegacyConfig.DefaultPath);
         IdleMonitor.Bind(Settings);
+        _trackingEnabled = Settings.Current.TrackingEnabled;
         _store.CloseOrphanOpenSegments(DateTime.UtcNow);
         _currentDateKey = TodayKey();
         (long keys, long clicks) = _store.GetTodayTotals();
@@ -43,6 +46,11 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         _foreground.Changed += OnForegroundChanged;
         _openApps = new OpenAppTracker();
         _openApps.Changed += OnOpenAppsChanged;
+
+        // Subscribed last, once every field SetTrackingEnabled touches (_foreground, _openApps)
+        // exists: the callback itself only runs later, marshalled onto the UI thread, but there
+        // is no reason to leave it referencing fields ahead of their assignment.
+        Settings.Changed += OnSettingsChanged;
         _midnightCheckTimer = new Timer(_ => CheckDateRollover(), null, 60000, 60000);
         _activityRefreshTimer = new Timer(
             _ => PublishActivity(),
@@ -61,7 +69,9 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
 
     public long MouseClickCount => _mouseClickCount;
 
-    public bool IsRunning { get; private set; }
+    // Started and not paused by DaylaneSettings.TrackingEnabled. Drives the header's
+    // Live/Stopped badge, so pausing tracking is visible without any new UI.
+    public bool IsRunning => _started && _trackingEnabled;
 
     public string CurrentAppName => _currentAppName;
 
@@ -214,15 +224,24 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
 
     public void Start()
     {
-        if (IsRunning)
+        if (_started)
         {
             return;
         }
 
+        _started = true;
+
+        // The input hook has no supported way to reinstall after Dispose (Task 13 review), so
+        // it is always installed here regardless of TrackingEnabled; OnInputCaptured is what
+        // gates whether it actually records anything. The foreground/open-app pollers can be
+        // paused and resumed cleanly, so those only start when tracking begins enabled.
         _hook.Install();
-        _foreground.Start();
-        _openApps.Start();
-        IsRunning = true;
+        if (_trackingEnabled)
+        {
+            _foreground.Start();
+            _openApps.Start();
+        }
+
         OnPropertyChanged(nameof(IsRunning));
         PublishActivity();
     }
@@ -235,6 +254,7 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         }
 
         _disposed = true;
+        Settings.Changed -= OnSettingsChanged;
         _midnightCheckTimer.Dispose();
         _activityRefreshTimer.Dispose();
         _foreground.Changed -= OnForegroundChanged;
@@ -245,18 +265,55 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         CloseOpenSegment(DateTime.UtcNow);
         CloseAllOpenApps(DateTime.UtcNow);
 
-        if (IsRunning)
+        if (_started)
         {
             _hook.Dispose();
-            IsRunning = false;
+            _started = false;
         }
 
         _store.Dispose();
     }
 
+    private void OnSettingsChanged(object? sender, DaylaneSettings settings) =>
+        Dispatcher.UIThread.Post(() => SetTrackingEnabled(settings.TrackingEnabled));
+
+    private void SetTrackingEnabled(bool enabled)
+    {
+        if (_disposed || _trackingEnabled == enabled)
+        {
+            return;
+        }
+
+        _trackingEnabled = enabled;
+
+        if (!enabled)
+        {
+            // Pause polling and close whatever is currently open, so a paused stretch reads
+            // as "nothing happening" rather than one very long segment once tracking resumes.
+            // The input hook itself is left running (see Start()) but OnInputCaptured now
+            // drops everything it reports.
+            if (_started)
+            {
+                _foreground.Stop();
+                _openApps.Stop();
+            }
+
+            CloseOpenSegment(DateTime.UtcNow);
+            CloseAllOpenApps(DateTime.UtcNow);
+            PublishActivity(force: true);
+        }
+        else if (_started)
+        {
+            _foreground.Start();
+            _openApps.Start();
+        }
+
+        OnPropertyChanged(nameof(IsRunning));
+    }
+
     private void OnForegroundChanged(ForegroundApp app)
     {
-        if (_disposed)
+        if (_disposed || !_trackingEnabled)
         {
             return;
         }
@@ -275,7 +332,7 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
 
     private void OnOpenAppsChanged(IReadOnlyList<ForegroundApp> apps)
     {
-        if (_disposed)
+        if (_disposed || !_trackingEnabled)
         {
             return;
         }
@@ -337,6 +394,13 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     // Called from the input-hook thread. Must stay lock-free and allocation-light.
     private void OnInputCaptured(InputEvent inputEvent)
     {
+        // The hook itself cannot be safely uninstalled and reinstalled (see Start()), so
+        // TrackingEnabled=false is honored here instead: drop everything the hook reports.
+        if (!_trackingEnabled)
+        {
+            return;
+        }
+
         _store.Enqueue(inputEvent);
 
         if (inputEvent.EventType == "Key")

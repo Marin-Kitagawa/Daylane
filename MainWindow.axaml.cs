@@ -64,10 +64,20 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
-        if (Application.Current is App { IsExiting: false })
+        if (Application.Current is App { IsExiting: false } app)
         {
+            // Default to hiding (matches DaylaneSettings.MinimizeToTray's true default) if the
+            // view model is not yet bound. When the setting is off, let the close proceed as a
+            // real exit instead of quietly living on in the tray.
+            if (_boundVm is null || _boundVm.MinimizeToTray)
+            {
+                e.Cancel = true;
+                Hide();
+                return;
+            }
+
             e.Cancel = true;
-            Hide();
+            app.ExitFromWindowClose();
             return;
         }
 

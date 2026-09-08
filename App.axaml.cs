@@ -77,7 +77,8 @@ public partial class App : Application
             SetupTrayIcon(desktop);
             StartActivationListener();
 
-            if (StartupRegistration.HasTrayArgument(desktop.Args ?? Array.Empty<string>()))
+            bool startedFromTray = StartupRegistration.HasTrayArgument(desktop.Args ?? Array.Empty<string>());
+            if (startedFromTray && !settings.Current.ShowWindowOnAutoStart)
             {
                 _mainWindow.ShowInTaskbar = false;
                 _mainWindow.Hide();
@@ -180,7 +181,13 @@ public partial class App : Application
 
         // The registry is authoritative and can be changed outside the app (or from the
         // Settings tab), so refresh the checkbox from it right before the menu is shown.
+        // Belt-and-braces: NativeMenu.NeedsUpdate has no caller in Avalonia.Win32.dll (its
+        // RaiseNeedsUpdate is only invoked from Avalonia.Native.dll on macOS), so on Windows
+        // this likely never fires -- the Settings.Changed subscription below is what actually
+        // keeps the tray checkbox in sync with the Settings tab.
         menu.NeedsUpdate += (_, _) => startupItem.IsChecked = StartupRegistration.IsEnabled();
+        _trackingService?.Settings.Changed += (_, _) => Dispatcher.UIThread.Post(
+            () => startupItem.IsChecked = StartupRegistration.IsEnabled());
 
         menu.Items.Add(new NativeMenuItemSeparator());
         var exitItem = new NativeMenuItem { Header = "Exit" };
@@ -212,6 +219,19 @@ public partial class App : Application
         StopActivationListener();
         _trackingService?.Dispose();
         desktop.Shutdown();
+    }
+
+    /// <summary>
+    /// Called from MainWindow.OnClosing when MinimizeToTray is off: the window's own close
+    /// must become a real exit instead of the usual hide-to-tray, using the same shutdown path
+    /// as the tray's own Exit item.
+    /// </summary>
+    internal void ExitFromWindowClose()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            ExitApplication(desktop);
+        }
     }
 
     internal bool IsExiting => _isExiting;

@@ -2,8 +2,10 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Security;
 using System.Windows.Input;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Daylane.Controls;
 using Daylane.Models;
 using Daylane.Services;
@@ -93,6 +95,13 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         _tracking = tracking;
         _settings = tracking.Settings;
         _tracking.PropertyChanged += OnTrackingPropertyChanged;
+
+        // Settings.Changed is raised outside the service's lock and can arrive on any thread
+        // (the tray's startup checkbox writes from the UI thread, but nothing guarantees that
+        // stays true), and it fires for writes made by anyone -- not just this view model's own
+        // setters -- so the Settings tab and the tray checkbox cannot drift apart.
+        _settings.Changed += (_, _) => Dispatcher.UIThread.Post(
+            () => SettingsChangeNotifier.Raise(p => OnPropertyChanged(p)));
         OpenDataFolderCommand = new RelayCommand(() => OpenDataFolder(_tracking.DatabasePath));
         SelectDayCommand = new RelayCommand(() => SelectedTab = AppTab.Day);
         SelectInsightsCommand = new RelayCommand(() => SelectedTab = AppTab.Insights);
@@ -398,32 +407,49 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    public int IdleThresholdMinutes
+    // Nullable, not int: NumericUpDown reports Value as null while its box is momentarily
+    // empty (the user clearing it to retype). Avalonia's binding cannot convert null into a
+    // non-nullable int at all -- it never reaches this setter -- but converts cleanly into
+    // int?, so accepting null here and no-oping (while still re-raising the property) coerces
+    // the control back to the stored value instead of leaving it blank.
+    public int? IdleThresholdMinutes
     {
         get => _settings.Current.IdleThresholdMinutes;
         set
         {
+            if (value is null)
+            {
+                OnPropertyChanged();
+                return;
+            }
+
             if (_settings.Current.IdleThresholdMinutes == value)
             {
                 return;
             }
 
-            _settings.Update(s => s with { IdleThresholdMinutes = value });
+            _settings.Update(s => s with { IdleThresholdMinutes = value.Value });
             OnPropertyChanged();
         }
     }
 
-    public int RetentionDays
+    public int? RetentionDays
     {
         get => _settings.Current.RetentionDays;
         set
         {
+            if (value is null)
+            {
+                OnPropertyChanged();
+                return;
+            }
+
             if (_settings.Current.RetentionDays == value)
             {
                 return;
             }
 
-            _settings.Update(s => s with { RetentionDays = value });
+            _settings.Update(s => s with { RetentionDays = value.Value });
             OnPropertyChanged();
         }
     }
@@ -433,7 +459,24 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         get => StartupRegistration.IsEnabled();
         set
         {
-            StartupRegistration.SetEnabled(value);
+            if (StartupRegistration.IsEnabled() == value)
+            {
+                return;
+            }
+
+            try
+            {
+                StartupRegistration.SetEnabled(value);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException or SecurityException)
+            {
+                // Registry write failed (no resolvable process path, or access denied). Snap
+                // the toggle back to what the registry actually holds rather than leaving the
+                // UI showing a change that never took effect.
+                OnPropertyChanged();
+                return;
+            }
+
             _settings.Update(s => s with { AutoStart = StartupRegistration.IsEnabled() });
             OnPropertyChanged();
         }
