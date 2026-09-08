@@ -527,7 +527,7 @@ internal sealed class DailyStatsStore : IDisposable
                     dateParam.Value = date;
                     keysParam.Value = keyCountsByDate.GetValueOrDefault(date);
                     clicksParam.Value = mouseCountsByDate.GetValueOrDefault(date);
-                    nowParam.Value = DateTime.UtcNow.ToString("O");
+                    nowParam.Value = ToUtcText(DateTime.UtcNow);
                     command.ExecuteNonQuery();
                 }
 
