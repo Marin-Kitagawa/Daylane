@@ -33,6 +33,7 @@ it once you are satisfied the upgrade went cleanly.
 Open the **Settings** tab. Changes apply immediately — no restart.
 
 - **Appearance** — System, Light, or Dark; System follows Windows
+- **Track activity** — pause to stop recording new activity; nothing already recorded is deleted, the segment in progress is saved (not discarded) at the moment you pause, and pausing is not the same as quitting
 - **Idle threshold (minutes)** — minutes without keyboard or mouse input before a span is marked Away (1–240)
 - **Keep history for (days)** — delete records older than N days; defaults to `0`, which keeps everything until you opt in
 - **Startup** — Start with Windows, Show window on startup, Minimize to tray
