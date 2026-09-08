@@ -12,14 +12,23 @@ internal static class DeviceIdentity
 
     internal static string EnsureSelfDevice(SqliteConnection connection)
     {
-        string? existing = ReadSelfDeviceId(connection);
+        // Begin an immediate (not deferred) transaction so the "does a self device
+        // already exist" check and the insert that follows it are atomic against a
+        // concurrent writer. A deferred transaction only takes SQLite's write lock at
+        // its first write statement, so the SELECT below would still be unserialised:
+        // two connections could both read "no self row" on a fresh database before
+        // either commits, and both would mint and insert a distinct self device.
+        // Do not "simplify" this back to a deferred/default transaction.
+        using var transaction = connection.BeginTransaction(deferred: false);
+
+        string? existing = ReadSelfDeviceId(connection, transaction);
         if (existing is not null)
         {
+            transaction.Commit();
             return existing;
         }
 
         string deviceId = Guid.NewGuid().ToString();
-        using var transaction = connection.BeginTransaction();
 
         using (var insert = connection.CreateCommand())
         {
@@ -48,9 +57,10 @@ internal static class DeviceIdentity
         return deviceId;
     }
 
-    private static string? ReadSelfDeviceId(SqliteConnection connection)
+    private static string? ReadSelfDeviceId(SqliteConnection connection, SqliteTransaction transaction)
     {
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = "SELECT DeviceId FROM Devices WHERE IsSelf = 1 LIMIT 1;";
         return command.ExecuteScalar() as string;
     }

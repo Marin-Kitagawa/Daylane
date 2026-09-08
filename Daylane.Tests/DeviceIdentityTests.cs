@@ -68,5 +68,32 @@ public class DeviceIdentityTests
         Assert.Equal(
             1L,
             Scalar(connection, $"SELECT COUNT(*) FROM ActivitySegment WHERE DeviceId = '{deviceId}';"));
+        Assert.Equal(
+            1L,
+            Scalar(connection, $"SELECT COUNT(*) FROM OpenAppSegment WHERE DeviceId = '{deviceId}';"));
+    }
+
+    [Fact]
+    public void EnsureSelfDevice_WithPreExistingSelfRow_ReturnsThatIdRatherThanMintingANewOne()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+        Migrations.Apply(connection, temp.DatabasePath);
+
+        string seededId = Guid.NewGuid().ToString();
+        using (var seed = connection.CreateCommand())
+        {
+            seed.CommandText = """
+                INSERT INTO Devices (DeviceId, DisplayName, Os, IsSelf, UpdatedAt)
+                VALUES ($id, 'seeded-device', 'win', 1, '1970-01-01T00:00:00.0000000Z');
+                """;
+            seed.Parameters.AddWithValue("$id", seededId);
+            seed.ExecuteNonQuery();
+        }
+
+        string resolved = DeviceIdentity.EnsureSelfDevice(connection);
+
+        Assert.Equal(seededId, resolved);
+        Assert.Equal(1L, Scalar(connection, "SELECT COUNT(*) FROM Devices;"));
     }
 }
