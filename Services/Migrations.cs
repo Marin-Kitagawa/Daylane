@@ -25,10 +25,10 @@ internal static class Migrations
 
         // Only back up when upgrading data that already exists. A fresh database has
         // nothing to lose, and writing a .bak of an empty file just litters the folder.
-        if (version > 0 && databasePath is not null && File.Exists(databasePath))
-        {
-            TryBackup(databasePath, version);
-        }
+        bool backedUp = version > 0
+            && databasePath is not null
+            && File.Exists(databasePath)
+            && TryBackup(databasePath, version);
 
         for (int i = version; i < scripts.Length; i++)
         {
@@ -57,9 +57,9 @@ internal static class Migrations
             {
                 transaction.Rollback();
 
-                string backupNote = databasePath is null
-                    ? string.Empty
-                    : $" A backup of the previous database was kept at \"{databasePath}.bak.v{version}\".";
+                string backupNote = backedUp
+                    ? $" A backup of the previous database was kept at \"{databasePath}.bak.v{version}\"."
+                    : string.Empty;
 
                 throw new InvalidOperationException(
                     $"Daylane could not upgrade its database to version {i + 1}: {ex.Message}"
@@ -70,18 +70,21 @@ internal static class Migrations
         }
     }
 
-    private static void TryBackup(string databasePath, int fromVersion)
+    private static bool TryBackup(string databasePath, int fromVersion)
     {
         try
         {
             File.Copy(databasePath, $"{databasePath}.bak.v{fromVersion}", overwrite: true);
+            return true;
         }
         catch (IOException)
         {
             // A backup we cannot write must not block an upgrade the user needs.
+            return false;
         }
         catch (UnauthorizedAccessException)
         {
+            return false;
         }
     }
 

@@ -94,11 +94,26 @@ public class MigrationsTests
             "CREATE TABLE Good (Id INTEGER); SELECT this_is_not_valid_sql();"
         ];
 
-        Assert.Throws<InvalidOperationException>(
+        var exception = Assert.Throws<InvalidOperationException>(
             () => Migrations.Apply(connection, scripts, temp.DatabasePath));
 
         Assert.Equal(before, Migrations.ReadUserVersion(connection));
         Assert.DoesNotContain("Good", TableNames(connection));
+        Assert.Contains("backup", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Apply_WhenFreshDatabaseScriptFails_MessageDoesNotMentionBackup()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+
+        string[] scripts = ["CREATE TABLE Good (Id INTEGER); SELECT this_is_not_valid_sql();"];
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => Migrations.Apply(connection, scripts, temp.DatabasePath));
+
+        Assert.DoesNotContain("backup", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
