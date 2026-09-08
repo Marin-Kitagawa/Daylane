@@ -276,12 +276,14 @@ internal static class Migrations
         -- Group id equals the process name, so two devices independently arrive at the
         -- same id with no coordination. IsIdle = 0 keeps the synthetic 'Idle' process
         -- (Models/ForegroundApp.cs) out of the app list: away time is not an app.
+        -- OpenAppSegment has no IsIdle column, so the same exclusion is enforced here by
+        -- name instead of relying on OpenAppTracker never emitting one.
         INSERT OR IGNORE INTO AppGroups (Id, DisplayName)
             SELECT ProcessName, MIN(DisplayName) FROM ActivitySegment
              WHERE IsIdle = 0 GROUP BY ProcessName
             UNION
             SELECT ProcessName, MIN(DisplayName) FROM OpenAppSegment
-             GROUP BY ProcessName;
+             WHERE ProcessName <> 'Idle' GROUP BY ProcessName;
 
         INSERT OR IGNORE INTO AppGroupMembers (ProcessName, GroupId)
             SELECT Id, Id FROM AppGroups;
