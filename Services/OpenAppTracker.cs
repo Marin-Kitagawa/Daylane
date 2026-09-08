@@ -52,6 +52,17 @@ internal sealed class OpenAppTracker : IDisposable
         }
 
         _timer.Change(Timeout.Infinite, Timeout.Infinite);
+
+        // Same reasoning as ForegroundTracker.Stop: pausing closes every open app row, so the
+        // cached set has to go too, or the Poll() inside the next Start() would compare against
+        // the pre-pause set, report no change, and reopen nothing. The empty list is the state
+        // the tracker is constructed in, so the first Start() at launch is unaffected.
+        // _pidCache is left alone: it only memoizes pid -> app resolution and is pruned per
+        // poll, so it has no bearing on change detection.
+        lock (_lock)
+        {
+            _current = [];
+        }
     }
 
     public void Dispose()

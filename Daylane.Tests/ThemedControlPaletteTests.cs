@@ -6,12 +6,6 @@ using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using Daylane.Controls;
 
-// Avalonia's headless platform can be set up only once per process, and its dispatcher belongs
-// to the session's own UI thread. It does not survive xunit running test classes on several
-// threads at once, which shows up as "a different thread owns it" -- and only in a full-suite
-// run, never when this class is run under a filter by itself.
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
-
 namespace Daylane.Tests;
 
 /// <summary>

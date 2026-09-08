@@ -51,6 +51,17 @@ internal sealed class ForegroundTracker : IDisposable
         }
 
         _timer.Change(Timeout.Infinite, Timeout.Infinite);
+
+        // Drop the cached identity as well. Pausing closes the open segment, so if the cache
+        // survived, the immediate Poll() inside the next Start() would see the same app it saw
+        // before the pause, report no change, and open nothing -- recording nothing at all until
+        // the user happened to switch apps. That is the common case: pause, keep working in the
+        // same app, resume. null is exactly the state the tracker is constructed in, so the
+        // first Start() at launch behaves as it always did.
+        lock (_lock)
+        {
+            _current = null;
+        }
     }
 
     public void Dispose()
