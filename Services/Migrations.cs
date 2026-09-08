@@ -28,7 +28,9 @@ internal static class Migrations
         bool backedUp = version > 0
             && databasePath is not null
             && File.Exists(databasePath)
-            && TryBackup(databasePath, version);
+            && TryBackup(connection, databasePath, version);
+
+        int appliedThrough = version;
 
         for (int i = version; i < scripts.Length; i++)
         {
@@ -52,6 +54,7 @@ internal static class Migrations
                 }
 
                 transaction.Commit();
+                appliedThrough = i + 1;
             }
             catch (SqliteException ex)
             {
@@ -61,29 +64,49 @@ internal static class Migrations
                     ? $" A backup of the previous database was kept at \"{databasePath}.bak.v{version}\"."
                     : string.Empty;
 
+                // A multi-script Apply commits each script's transaction as it goes, so a
+                // later script can fail after an earlier one already advanced the schema.
+                // Say which version the database is actually sitting at rather than always
+                // claiming nothing changed.
+                string stateNote = appliedThrough == version
+                    ? " The database was left unchanged."
+                    : $" The database was upgraded to version {appliedThrough} before the failure and left there.";
+
                 throw new InvalidOperationException(
                     $"Daylane could not upgrade its database to version {i + 1}: {ex.Message}"
                     + backupNote
-                    + " The database was left unchanged.",
+                    + stateNote,
                     ex);
             }
         }
     }
 
-    private static bool TryBackup(string databasePath, int fromVersion)
+    private static bool TryBackup(SqliteConnection connection, string databasePath, int fromVersion)
     {
         try
         {
+            // Production runs in WAL mode, so committed rows from a session that ended
+            // without a clean checkpoint (a crash, a killed process) can still be sitting
+            // in a leftover -wal sidecar that a bare file copy would never see. TRUNCATE
+            // folds that sidecar back into the main file so the .bak is self-contained.
+            using (var checkpoint = connection.CreateCommand())
+            {
+                checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                checkpoint.ExecuteNonQuery();
+            }
+
             File.Copy(databasePath, $"{databasePath}.bak.v{fromVersion}", overwrite: true);
             return true;
         }
-        catch (IOException)
+        catch (SqliteException)
         {
-            // A backup we cannot write must not block an upgrade the user needs.
+            // The checkpoint failed, so we cannot guarantee the copy below would be
+            // complete. Don't take a backup we can't vouch for.
             return false;
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // A backup we cannot write must not block an upgrade the user needs.
             return false;
         }
     }

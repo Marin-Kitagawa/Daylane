@@ -146,4 +146,67 @@ public class MigrationsTests
 
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(temp.DatabasePath)!, "*.bak.*"));
     }
+
+    [Fact]
+    public void Apply_WhenLaterScriptFails_MessageReflectsPartialUpgrade()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+
+        string[] scripts =
+        [
+            .. Migrations.Scripts,
+            "CREATE TABLE Partial (Id INTEGER);",
+            "SELECT this_is_not_valid_sql();"
+        ];
+        int expectedAppliedThrough = Migrations.CurrentVersion + 1;
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => Migrations.Apply(connection, scripts, temp.DatabasePath));
+
+        Assert.DoesNotContain("left unchanged", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"upgraded to version {expectedAppliedThrough} before the failure", exception.Message);
+        Assert.Equal(expectedAppliedThrough, Migrations.ReadUserVersion(connection));
+        Assert.Contains("Partial", TableNames(connection));
+    }
+
+    [Fact]
+    public void Apply_WhenUpgradingExistingDatabase_BackupIncludesUncheckpointedWalCommits()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+        Migrations.Apply(connection, temp.DatabasePath);
+
+        // Commit a row without an explicit checkpoint. Under WAL mode this write lands
+        // in the -wal sidecar, not the main .db file, until something checkpoints it.
+        using (var insert = connection.CreateCommand())
+        {
+            insert.CommandText =
+                "INSERT INTO DailyInput (LogDate, KeyCount, MouseClickCount) VALUES ('2026-09-01', 42, 7);";
+            insert.ExecuteNonQuery();
+        }
+
+        string walPath = $"{temp.DatabasePath}-wal";
+        Assert.True(File.Exists(walPath));
+        Assert.True(new FileInfo(walPath).Length > 0);
+
+        string[] scripts = [.. Migrations.Scripts, "CREATE TABLE Later (Id INTEGER);"];
+        Migrations.Apply(connection, scripts, temp.DatabasePath);
+
+        string backupPath = $"{temp.DatabasePath}.bak.v{Migrations.CurrentVersion}";
+        Assert.True(File.Exists(backupPath));
+
+        using var backupConnection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = backupPath,
+            Mode = SqliteOpenMode.ReadOnly
+        }.ConnectionString);
+        backupConnection.Open();
+        using var read = backupConnection.CreateCommand();
+        read.CommandText = "SELECT KeyCount, MouseClickCount FROM DailyInput WHERE LogDate = '2026-09-01';";
+        using var reader = read.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal(42L, reader.GetInt64(0));
+        Assert.Equal(7L, reader.GetInt64(1));
+    }
 }
