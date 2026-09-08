@@ -32,10 +32,10 @@ it once you are satisfied the upgrade went cleanly.
 
 Open the **Settings** tab. Changes apply immediately — no restart.
 
-- **Appearance** — Light, Dark, or follow Windows
-- **Away threshold** — minutes without keyboard or mouse input before a span is marked Away (1–240)
-- **Retention** — delete records older than N days; `0` keeps everything
-- **Startup** — start with Windows, start hidden in the tray, close button minimizes to tray
+- **Appearance** — System, Light, or Dark; System follows Windows
+- **Idle threshold (minutes)** — minutes without keyboard or mouse input before a span is marked Away (1–240)
+- **Keep history for (days)** — delete records older than N days; defaults to `0`, which keeps everything until you opt in
+- **Startup** — Start with Windows, Show window on startup, Minimize to tray
 
 Settings live in `daylane.db`. The old `config.ini` is read once on
 first launch after upgrading, to carry your `threshold_minutes` across;
