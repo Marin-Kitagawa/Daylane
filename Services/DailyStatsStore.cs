@@ -431,6 +431,16 @@ internal sealed class DailyStatsStore : IDisposable
             .ToList();
     }
 
+    internal void PruneOldData(int retentionDays)
+    {
+        lock (_dbWriteLock)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            RetentionPruner.Prune(connection, retentionDays, DateTime.Now);
+        }
+    }
+
     public void Enqueue(InputEvent inputEvent) => _buffer.Enqueue(inputEvent);
 
     public void Flush()

@@ -35,6 +35,11 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         Settings = new SettingsService(_store.ConnectionString);
         LegacyConfig.ImportOnce(Settings, LegacyConfig.DefaultPath);
         IdleMonitor.Bind(Settings);
+        if (Settings.Current.RetentionDays > 0)
+        {
+            _store.PruneOldData(Settings.Current.RetentionDays);
+        }
+
         _trackingEnabled = Settings.Current.TrackingEnabled;
         _store.CloseOrphanOpenSegments(DateTime.UtcNow);
         _currentDateKey = TodayKey();
