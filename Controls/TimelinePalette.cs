@@ -38,8 +38,13 @@ internal sealed record TimelinePalette
         IdleSoftStripe = Lookup(host, variant, "AppIdleSoftStripeBrush")
     };
 
+    // TryFindResource, not TryGetResource: TryGetResource only consults the host's own resources,
+    // so a Control host never reached the app-level ThemeDictionaries where these tokens live and
+    // every lookup fell through to magenta. TryFindResource walks the resource parent chain up to
+    // Application. It still resolves for a host that holds the tokens directly (the view model
+    // passes Application.Current), since the walk starts at the host itself.
     private static Color Lookup(IResourceHost host, ThemeVariant variant, string key)
-        => host.TryGetResource(key, variant, out object? value) && value is ISolidColorBrush brush
+        => host.TryFindResource(key, variant, out object? value) && value is ISolidColorBrush brush
             ? brush.Color
             : Colors.Magenta; // Deliberately loud: a missing token should be visible, not silent.
 }
