@@ -48,3 +48,6 @@ _ReSharper*/
 backup/
 sketch/
 TODO.txt
+
+# Subagent-driven development scratch (ledger, briefs, review packages)
+.superpowers/
