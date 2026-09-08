@@ -17,6 +17,7 @@ internal sealed record TimelinePalette
     public required Color GridMinor { get; init; }
     public required Color GridMajor { get; init; }
     public required Color Border { get; init; }
+    public required Color Surface { get; init; }
     public required Color IdleFill { get; init; }
     public required Color IdleStripe { get; init; }
     public required Color IdleSoftFill { get; init; }
@@ -30,6 +31,7 @@ internal sealed record TimelinePalette
         GridMinor = Lookup(host, variant, "AppGridMinorBrush"),
         GridMajor = Lookup(host, variant, "AppGridMajorBrush"),
         Border = Lookup(host, variant, "AppBorderBrush"),
+        Surface = Lookup(host, variant, "AppSurfaceBrush"),
         IdleFill = Lookup(host, variant, "AppIdleBrush"),
         IdleStripe = Lookup(host, variant, "AppIdleStripeBrush"),
         IdleSoftFill = Lookup(host, variant, "AppIdleSoftBrush"),

@@ -105,7 +105,8 @@ internal sealed class TimelineLane : ThemedControl
     public override void Render(DrawingContext context)
     {
         var bounds = new Rect(Bounds.Size);
-        context.FillRectangle(Brushes.White, bounds);
+        TimelinePalette palette = Palette;
+        context.FillRectangle(new SolidColorBrush(palette.Surface), bounds);
 
         if (!TryGetDayRange(out DateTime dayStartLocal, out DateTime dayStartUtc, out DateTime dayEndUtc, out double dayMs))
         {
@@ -113,7 +114,6 @@ internal sealed class TimelineLane : ThemedControl
         }
 
         DateTime nowUtc = DateTime.UtcNow;
-        TimelinePalette palette = Palette;
         DrawGrid(context, bounds, palette);
 
         var segments = Segments;
@@ -434,7 +434,7 @@ internal sealed class TimelineLane : ThemedControl
         }
 
         context.DrawLine(
-            new Pen(new SolidColorBrush(palette.GridMajor), 1),
+            new Pen(new SolidColorBrush(palette.Border), 1),
             new Point(0, bounds.Height - 0.5),
             new Point(bounds.Width, bounds.Height - 0.5));
     }
@@ -451,9 +451,10 @@ internal sealed class TimelineRuler : ThemedControl
     public override void Render(DrawingContext context)
     {
         var bounds = new Rect(Bounds.Size);
-        context.FillRectangle(Brushes.White, bounds);
+        TimelinePalette palette = Palette;
+        context.FillRectangle(new SolidColorBrush(palette.Surface), bounds);
 
-        var textBrush = new SolidColorBrush(Palette.Muted);
+        var textBrush = new SolidColorBrush(palette.Muted);
         var typeface = new Typeface("Segoe UI");
         double pxPerHour = bounds.Width / 24.0;
         int step = pxPerHour >= 56 ? 1 : pxPerHour >= 28 ? 2 : 3;

@@ -6,7 +6,7 @@ using Daylane.Controls;
 namespace Daylane.Tests;
 
 /// <summary>
-/// Verifies TimelinePalette.Resolve reads the ten timeline tokens from the correct
+/// Verifies TimelinePalette.Resolve reads the eleven timeline tokens from the correct
 /// ThemeVariant dictionary. This resolves against a plain Border (a Control, hence an
 /// IResourceHost) carrying its own ResourceDictionary.ThemeDictionaries rather than
 /// against a real Daylane.App: as ThemeTokenTests.cs documents, instantiating
@@ -33,6 +33,7 @@ public class TimelinePaletteTests
                     ["AppGridMinorBrush"] = new SolidColorBrush(Color.Parse("#F3F4F6")),
                     ["AppGridMajorBrush"] = new SolidColorBrush(Color.Parse("#E5E7EB")),
                     ["AppBorderBrush"] = new SolidColorBrush(Color.Parse("#E5E7EB")),
+                    ["AppSurfaceBrush"] = new SolidColorBrush(Color.Parse("#FFFFFF")),
                     ["AppIdleBrush"] = new SolidColorBrush(Color.Parse("#AEB4BE")),
                     ["AppIdleStripeBrush"] = new SolidColorBrush(Color.Parse("#A0A7B1")),
                     ["AppIdleSoftBrush"] = new SolidColorBrush(Color.Parse("#EEF0F3")),
@@ -46,6 +47,7 @@ public class TimelinePaletteTests
                     ["AppGridMinorBrush"] = new SolidColorBrush(Color.Parse("#1E222A")),
                     ["AppGridMajorBrush"] = new SolidColorBrush(Color.Parse("#2A2F39")),
                     ["AppBorderBrush"] = new SolidColorBrush(Color.Parse("#2A2F39")),
+                    ["AppSurfaceBrush"] = new SolidColorBrush(Color.Parse("#171A20")),
                     ["AppIdleBrush"] = new SolidColorBrush(Color.Parse("#5A616D")),
                     ["AppIdleStripeBrush"] = new SolidColorBrush(Color.Parse("#6A717D")),
                     ["AppIdleSoftBrush"] = new SolidColorBrush(Color.Parse("#23272F")),
@@ -68,6 +70,7 @@ public class TimelinePaletteTests
         Assert.Equal(Color.Parse("#F3F4F6"), palette.GridMinor);
         Assert.Equal(Color.Parse("#E5E7EB"), palette.GridMajor);
         Assert.Equal(Color.Parse("#E5E7EB"), palette.Border);
+        Assert.Equal(Color.Parse("#FFFFFF"), palette.Surface);
         Assert.Equal(Color.Parse("#AEB4BE"), palette.IdleFill);
         Assert.Equal(Color.Parse("#A0A7B1"), palette.IdleStripe);
         Assert.Equal(Color.Parse("#EEF0F3"), palette.IdleSoftFill);
@@ -85,6 +88,7 @@ public class TimelinePaletteTests
         Assert.Equal(Color.Parse("#1E222A"), palette.GridMinor);
         Assert.Equal(Color.Parse("#2A2F39"), palette.GridMajor);
         Assert.Equal(Color.Parse("#2A2F39"), palette.Border);
+        Assert.Equal(Color.Parse("#171A20"), palette.Surface);
         Assert.Equal(Color.Parse("#5A616D"), palette.IdleFill);
         Assert.Equal(Color.Parse("#6A717D"), palette.IdleStripe);
         Assert.Equal(Color.Parse("#23272F"), palette.IdleSoftFill);
