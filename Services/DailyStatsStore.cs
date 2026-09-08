@@ -15,6 +15,9 @@ internal sealed class DailyStatsStore : IDisposable
     private readonly object _dbWriteLock = new();
     private readonly Timer _flushTimer;
     private bool _disposed;
+    private string _deviceId = DeviceIdentity.Placeholder;
+
+    internal string DeviceId => _deviceId;
 
     public DailyStatsStore(string? databasePath = null)
     {
@@ -447,7 +450,7 @@ internal sealed class DailyStatsStore : IDisposable
 
             lock (_dbWriteLock)
             {
-                if (!TryWriteBatch(_connectionString, batch))
+                if (!TryWriteBatch(_connectionString, _deviceId, batch))
                 {
                     foreach (var inputEvent in batch)
                     {
@@ -473,7 +476,7 @@ internal sealed class DailyStatsStore : IDisposable
     private static string ResolveDatabasePath() =>
         Path.Combine(AppContext.BaseDirectory, "daylane.db");
 
-    private static bool TryWriteBatch(string connectionString, List<InputEvent> batch)
+    private static bool TryWriteBatch(string connectionString, string deviceId, List<InputEvent> batch)
     {
         var keyCountsByDate = new Dictionary<string, int>();
         var mouseCountsByDate = new Dictionary<string, int>();
@@ -510,7 +513,7 @@ internal sealed class DailyStatsStore : IDisposable
                 command.Transaction = transaction;
                 command.CommandText = """
                     INSERT INTO DailyInput (LogDate, DeviceId, KeyCount, MouseClickCount, UpdatedAt)
-                    VALUES ($date, 'local', $keys, $clicks, $now)
+                    VALUES ($date, $device, $keys, $clicks, $now)
                     ON CONFLICT (LogDate, DeviceId) DO UPDATE SET
                         KeyCount = KeyCount + $keys,
                         MouseClickCount = MouseClickCount + $clicks,
@@ -518,6 +521,7 @@ internal sealed class DailyStatsStore : IDisposable
                     """;
 
                 var dateParam = command.Parameters.Add("$date", SqliteType.Text);
+                command.Parameters.AddWithValue("$device", deviceId);
                 var keysParam = command.Parameters.Add("$keys", SqliteType.Integer);
                 var clicksParam = command.Parameters.Add("$clicks", SqliteType.Integer);
                 var nowParam = command.Parameters.Add("$now", SqliteType.Text);
@@ -563,6 +567,7 @@ internal sealed class DailyStatsStore : IDisposable
         }
 
         Migrations.Apply(connection, DatabasePath);
+        _deviceId = DeviceIdentity.EnsureSelfDevice(connection);
     }
 
     private static ActivitySegment ReadSegment(SqliteDataReader reader) =>
