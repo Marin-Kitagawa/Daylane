@@ -219,5 +219,20 @@ internal static class Migrations
         BEGIN
             UPDATE OpenAppSegment SET RemoteId = NEW.Id WHERE Id = NEW.Id;
         END;
+
+        CREATE TABLE DailyInput_v2 (
+            LogDate         TEXT NOT NULL,
+            DeviceId        TEXT NOT NULL DEFAULT 'local',
+            KeyCount        INTEGER NOT NULL DEFAULT 0,
+            MouseClickCount INTEGER NOT NULL DEFAULT 0,
+            UpdatedAt       TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z',
+            PRIMARY KEY (LogDate, DeviceId)
+        );
+
+        INSERT INTO DailyInput_v2 (LogDate, DeviceId, KeyCount, MouseClickCount)
+            SELECT LogDate, 'local', KeyCount, MouseClickCount FROM DailyInput;
+
+        DROP TABLE DailyInput;
+        ALTER TABLE DailyInput_v2 RENAME TO DailyInput;
         """;
 }

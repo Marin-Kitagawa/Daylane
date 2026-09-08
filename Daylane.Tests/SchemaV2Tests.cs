@@ -149,4 +149,67 @@ public class SchemaV2Tests
         read.CommandText = "SELECT UpdatedAt FROM ActivitySegment;";
         Assert.NotEqual(Epoch, (string)read.ExecuteScalar()!);
     }
+
+    [Fact]
+    public void V2_RebuildsDailyInputWithCompositeKey()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+
+        Migrations.Apply(connection, temp.DatabasePath);
+
+        var columns = ColumnNames(connection, "DailyInput");
+        Assert.Contains("DeviceId", columns);
+        Assert.Contains("UpdatedAt", columns);
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DailyInput') WHERE pk > 0;";
+        Assert.Equal(2L, (long)command.ExecuteScalar()!);
+    }
+
+    [Fact]
+    public void V2_PreservesDailyInputCounts()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+        ApplyV1Only(connection, temp.DatabasePath);
+
+        using (var insert = connection.CreateCommand())
+        {
+            insert.CommandText =
+                "INSERT INTO DailyInput (LogDate, KeyCount, MouseClickCount) VALUES ('2026-08-30', 1234, 56);";
+            insert.ExecuteNonQuery();
+        }
+
+        Migrations.Apply(connection, temp.DatabasePath);
+
+        using var read = connection.CreateCommand();
+        read.CommandText =
+            "SELECT DeviceId, KeyCount, MouseClickCount FROM DailyInput WHERE LogDate = '2026-08-30';";
+        using var reader = read.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal("local", reader.GetString(0));
+        Assert.Equal(1234L, reader.GetInt64(1));
+        Assert.Equal(56L, reader.GetInt64(2));
+    }
+
+    [Fact]
+    public void V2_AllowsSameDateOnTwoDevices()
+    {
+        using var temp = new TempDatabase();
+        using var connection = temp.Open();
+        Migrations.Apply(connection, temp.DatabasePath);
+
+        using var insert = connection.CreateCommand();
+        insert.CommandText = """
+            INSERT INTO DailyInput (LogDate, DeviceId, KeyCount, MouseClickCount)
+                VALUES ('2026-09-01', 'device-a', 10, 1),
+                       ('2026-09-01', 'device-b', 20, 2);
+            """;
+        insert.ExecuteNonQuery();
+
+        using var count = connection.CreateCommand();
+        count.CommandText = "SELECT COUNT(*) FROM DailyInput WHERE LogDate = '2026-09-01';";
+        Assert.Equal(2L, (long)count.ExecuteScalar()!);
+    }
 }

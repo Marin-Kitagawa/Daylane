@@ -44,18 +44,14 @@ internal sealed class DailyStatsStore : IDisposable
 
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT KeyCount, MouseClickCount
+            SELECT COALESCE(SUM(KeyCount), 0), COALESCE(SUM(MouseClickCount), 0)
             FROM DailyInput
             WHERE LogDate = $date;
             """;
         command.Parameters.AddWithValue("$date", dateKey);
 
         using var reader = command.ExecuteReader();
-        if (!reader.Read())
-        {
-            return (0, 0);
-        }
-
+        reader.Read();
         return (reader.GetInt64(0), reader.GetInt64(1));
     }
 
@@ -513,22 +509,25 @@ internal sealed class DailyStatsStore : IDisposable
                 using var command = connection.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = """
-                    INSERT INTO DailyInput (LogDate, KeyCount, MouseClickCount)
-                    VALUES ($date, $keys, $clicks)
-                    ON CONFLICT(LogDate) DO UPDATE SET
-                        KeyCount = KeyCount + excluded.KeyCount,
-                        MouseClickCount = MouseClickCount + excluded.MouseClickCount;
+                    INSERT INTO DailyInput (LogDate, DeviceId, KeyCount, MouseClickCount, UpdatedAt)
+                    VALUES ($date, 'local', $keys, $clicks, $now)
+                    ON CONFLICT (LogDate, DeviceId) DO UPDATE SET
+                        KeyCount = KeyCount + $keys,
+                        MouseClickCount = MouseClickCount + $clicks,
+                        UpdatedAt = $now;
                     """;
 
                 var dateParam = command.Parameters.Add("$date", SqliteType.Text);
                 var keysParam = command.Parameters.Add("$keys", SqliteType.Integer);
                 var clicksParam = command.Parameters.Add("$clicks", SqliteType.Integer);
+                var nowParam = command.Parameters.Add("$now", SqliteType.Text);
 
                 foreach (string date in allDates)
                 {
                     dateParam.Value = date;
                     keysParam.Value = keyCountsByDate.GetValueOrDefault(date);
                     clicksParam.Value = mouseCountsByDate.GetValueOrDefault(date);
+                    nowParam.Value = DateTime.UtcNow.ToString("O");
                     command.ExecuteNonQuery();
                 }
 
