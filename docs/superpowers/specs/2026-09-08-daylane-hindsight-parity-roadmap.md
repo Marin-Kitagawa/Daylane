@@ -112,3 +112,64 @@ for anyone who does not turn it on. When enabled it checks GitHub Releases for a
 and links to the download; the README must state exactly what is sent and when. Daylane has
 no updater today and .NET offers no equivalent to `tauri-plugin-updater`, so this is a
 build rather than a port.
+
+## Carried forward from sub-project 2 (2026-09-09)
+
+Sub-project 2 shipped with two architectural findings deliberately parked rather than
+fixed in its final wave, plus a short list of smaller ones. They are recorded here
+because the execution ledger they were found in is scratch and does not survive the
+branch.
+
+### Parked, architectural — schedule before sub-project 7 (sync)
+
+- **`RecomputeExcluded` holds `_dbWriteLock` for its whole pass.** The full-table
+  re-evaluation was deliberately moved off the UI thread so a rule edit could not freeze
+  the window, but every read — `GetDaySnapshot`, `GetSegmentsForLocalRange`,
+  `GetTitleUsage`, `SearchTitles` — takes that same lock, so on a large database the
+  freeze happens anyway. The move was right; the premise that it was sufficient was not.
+  Fixing it properly means deciding whether reads should take that lock at all, since
+  WAL already permits concurrent readers. That touches every read path in the store,
+  which is why it was not folded into a fix wave.
+
+- **A sample-then-act gap in `TrackingService.SwitchSegment`.** Keeping the unbounded
+  UI Automation walk outside `_segmentStateLock` was necessary — holding the lock across
+  a hung browser renderer froze the window. But before that change the whole method body
+  was inside the lock, so concurrent `Changed` handlers serialised with no gap between
+  sampling the foreground app and acting on it. There is now a 46ms-to-unbounded gap, and
+  `System.Threading.Timer` does not serialise its callbacks. Worst case: an older switch
+  commits after a newer one, leaving two rows with mis-ordered `StartUtc` and a stale
+  current-app in the header until the next switch. Not data loss. The fix shape is a
+  switch sequence number checked inside the lock, or an identity re-check against the
+  live foreground app after the walk; it also needs a way to reproduce a genuinely slow
+  walk.
+
+### Smaller, opportunistic
+
+- Two of the five totals corrected in the final wave (`UpdateFocusSummary`'s
+  longest-focus/session-count, and the `% of tracked` denominator) filter excluded
+  segments by hand rather than through the shared `SegmentWindows.Counted` enumerator,
+  so they are the exception to the by-construction guarantee — and both live in a view
+  model that cannot be constructed in a test, so neither is covered.
+- `AggregateOpenApps` keeps its own clip/clamp preamble, a fourth copy of the shape the
+  final wave consolidated. Defensible (different table, needs `currentlyOpen`) but the
+  "one shared helper" claim is four of five.
+- `SettingsService.Update` now reports a failed persist, but every caller discards the
+  `bool`, so a failed settings write is invisible to the user. History is no longer
+  recomputed against unpersisted rules, which was the correctness half; surfacing it is
+  the remaining half.
+- An excluded *idle* segment still increments the Away count while dropping out of the
+  Idle figure, so the two disagree. Reachable only by writing an ignore rule for the
+  pseudo-process `Idle`.
+- `Daylane.Tests` still emits three nullable warnings that predate sub-project 2. The
+  warning-clean gate covers `Daylane.csproj` only.
+
+### Never verified by running the app
+
+No UI on this branch was ever rendered — Daylane's single-instance mutex means launching
+it during development pops the user's live window to the foreground, so it stayed closed
+throughout. Compiled bindings and the colour-literal gate are the only evidence behind
+the Privacy panel, the app-detail drawer and the search popup. The first things worth
+clicking are listed at the end of the sub-project 2 branch review; the highest-value
+check is a browser with **Record browser site** on, because a wrong vtable ordering in
+the hand-written UI Automation interop is swallowed by design and reports as "no host"
+rather than as an error.
