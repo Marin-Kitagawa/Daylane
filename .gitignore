@@ -51,3 +51,7 @@ TODO.txt
 
 # Subagent-driven development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# Superpowers/Claude Code scratch: worktrees are nested checkouts, never repo content.
+.claude/worktrees/
+.superpowers/
