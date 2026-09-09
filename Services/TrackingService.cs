@@ -318,11 +318,19 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
 
         _lastAppliedIgnoreRules = rules;
 
+        // Re-read Settings.Current.IgnoreRules at execution time rather than close over `rules`:
+        // two rapid rule edits each pass this compare-and-swap and queue their own Task.Run body,
+        // and those two bodies race on _dbWriteLock with no ordering guarantee. If they closed
+        // over the list captured at queue time, whichever body's lock acquisition lost the race
+        // could still win the write, leaving the database reflecting the older rule set while
+        // _lastAppliedIgnoreRules already claims the newer -- and nothing re-triggers a pass to
+        // fix it. Reading fresh here means whichever body actually runs last applies the current
+        // rules, so the final state is correct regardless of completion order.
         Task.Run(() =>
         {
             try
             {
-                _store.RecomputeExcluded(rules);
+                _store.RecomputeExcluded(Settings.Current.IgnoreRules ?? Array.Empty<IgnoreRule>());
             }
             catch (Exception ex)
             {
@@ -473,8 +481,8 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
 
     private void SwitchSegment(ForegroundApp app, DateTime boundaryUtc)
     {
-        // One snapshot for both the gate below and CapturePolicy.Apply inside the lock, so the
-        // two cannot disagree if the user edits settings mid-switch.
+        // Snapshot for the browser-host gate below only. It has to be read before the walk, and
+        // it is the right value for deciding whether to walk at all.
         DaylaneSettings settings = Settings.Current;
 
         // MUST stay outside lock (_segmentStateLock). This is a cross-process COM call into the
@@ -536,7 +544,17 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
                 openAt = DateTime.UtcNow;
             }
 
-            ForegroundApp stored = CapturePolicy.Apply(app, settings, out bool excluded);
+            // Re-read Settings.Current here rather than reuse the gate's snapshot: the browser
+            // walk above has no bound on how long it runs, and the newest settings must win over
+            // whatever was current when the walk started. Every case resolves correctly under
+            // this rule -- if titles were switched off during the walk, Apply strips the host it
+            // just fetched; if they were switched on, UrlHost stays null because nothing was
+            // fetched, which is the honest outcome. And the exclusion verdict is judged by the
+            // newest rules, so it agrees with whatever RecomputeExcluded just wrote for every
+            // other row, instead of a stale snapshot writing one row the recompute can never
+            // revisit (nothing re-triggers a pass once _lastAppliedIgnoreRules already matches
+            // the new list).
+            ForegroundApp stored = CapturePolicy.Apply(app, Settings.Current, out bool excluded);
             long id = _store.OpenSegment(stored, openAt, excluded);
             Volatile.Write(ref _openSegment, new OpenSegmentState(id, stored, openAt));
             _currentAppName = stored.DisplayName;
