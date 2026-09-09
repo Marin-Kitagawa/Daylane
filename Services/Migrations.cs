@@ -8,7 +8,7 @@ namespace Daylane.Services;
 /// </summary>
 internal static class Migrations
 {
-    internal static readonly string[] Scripts = [V1, V2, V3];
+    internal static readonly string[] Scripts = [V1, V2, V3, V4];
 
     internal static int CurrentVersion => Scripts.Length;
 
@@ -336,5 +336,16 @@ internal static class Migrations
     private const string V3 = """
         CREATE INDEX IF NOT EXISTS IX_ActivitySegment_LocalDate_Title
             ON ActivitySegment (LocalDate, WindowTitle);
+        """;
+
+    // v4: drop ineffective title index. The search query uses LIKE with a leading wildcard,
+    // which prevents SQLite's LIKE range-scan optimization from using any suffix of the index.
+    // The leading % means the second column (WindowTitle) is never consulted for filtering.
+    // The query also selects eleven columns outside (LocalDate, WindowTitle), so the index
+    // cannot serve as a covering index either. V3's comment claiming this index serves the
+    // search is empirically incorrect and must not be re-trusted: this migration removes the
+    // dead weight that every segment insert was paying forever.
+    private const string V4 = """
+        DROP INDEX IF EXISTS IX_ActivitySegment_LocalDate_Title;
         """;
 }
