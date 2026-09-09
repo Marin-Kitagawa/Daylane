@@ -373,7 +373,8 @@ internal sealed class DailyStatsStore : IDisposable
 
             using var command = connection.CreateCommand();
             command.CommandText = """
-                SELECT Id, StartUtc, EndUtc, ProcessName, ExePath, DisplayName, IsIdle, KeyCount, MouseClickCount
+                SELECT Id, StartUtc, EndUtc, ProcessName, ExePath, DisplayName, IsIdle, KeyCount, MouseClickCount,
+                    WindowTitle, UrlHost, Excluded
                 FROM ActivitySegment
                 WHERE StartUtc < $rangeEnd
                   AND COALESCE(EndUtc, $now) > $rangeStart
@@ -458,6 +459,76 @@ internal sealed class DailyStatsStore : IDisposable
                 KeyCount = a.KeyCount,
                 MouseClickCount = a.MouseClickCount,
                 IsIdle = a.IsIdle
+            })
+            .OrderByDescending(a => a.Duration)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Per-title breakdown for one app over a date range, for the app-detail drawer. Deliberately
+    /// not a second SQL aggregate: <see cref="AggregateAppUsage"/> already owns the correct
+    /// range-clipping, open-segment, and now-clamp treatment, so this filters
+    /// <see cref="GetSegmentsForLocalRange"/> to the requested exe and mirrors that same
+    /// accumulator shape, grouping by (WindowTitle, UrlHost) instead of by exe path.
+    /// Excluded rows are returned and marked, never dropped: hiding them would make the rule
+    /// that excluded them undiscoverable.
+    /// </summary>
+    public IReadOnlyList<TitleUsageSummary> GetTitleUsage(
+        string exePath,
+        DateTime rangeStartLocal,
+        DateTime rangeEndExclusiveLocal)
+    {
+        DateTime rangeStartUtc = rangeStartLocal.ToUniversalTime();
+        DateTime rangeEndUtc = rangeEndExclusiveLocal.ToUniversalTime();
+        DateTime nowUtc = DateTime.UtcNow;
+
+        var segments = GetSegmentsForLocalRange(rangeStartLocal, rangeEndExclusiveLocal)
+            .Where(s => string.Equals(s.ExePath, exePath, StringComparison.OrdinalIgnoreCase));
+
+        var totals = new Dictionary<(string? Title, string? UrlHost), TitleAccumulator>();
+
+        foreach (var segment in segments)
+        {
+            DateTime start = segment.StartUtc < rangeStartUtc ? rangeStartUtc : segment.StartUtc;
+            DateTime end = segment.EffectiveEndUtc > rangeEndUtc ? rangeEndUtc : segment.EffectiveEndUtc;
+            if (end > nowUtc)
+            {
+                end = nowUtc;
+            }
+
+            if (end <= start)
+            {
+                continue;
+            }
+
+            var key = (segment.WindowTitle, segment.UrlHost);
+
+            if (!totals.TryGetValue(key, out var acc))
+            {
+                acc = new TitleAccumulator
+                {
+                    Title = segment.WindowTitle,
+                    UrlHost = segment.UrlHost
+                };
+                totals[key] = acc;
+            }
+
+            acc.Duration += end - start;
+            acc.SessionCount++;
+            if (segment.Excluded)
+            {
+                acc.IsExcluded = true;
+            }
+        }
+
+        return totals.Values
+            .Select(a => new TitleUsageSummary
+            {
+                Title = a.Title,
+                UrlHost = a.UrlHost,
+                Duration = a.Duration,
+                SessionCount = a.SessionCount,
+                IsExcluded = a.IsExcluded
             })
             .OrderByDescending(a => a.Duration)
             .ToList();
@@ -680,7 +751,10 @@ internal sealed class DailyStatsStore : IDisposable
             DisplayName = reader.GetString(5),
             IsIdle = reader.GetInt64(6) != 0,
             KeyCount = reader.GetInt64(7),
-            MouseClickCount = reader.GetInt64(8)
+            MouseClickCount = reader.GetInt64(8),
+            WindowTitle = reader.IsDBNull(9) ? null : reader.GetString(9),
+            UrlHost = reader.IsDBNull(10) ? null : reader.GetString(10),
+            Excluded = reader.GetInt64(11) != 0
         };
 
     private static string TodayKey() => DateTime.Now.ToString("yyyy-MM-dd");
@@ -714,5 +788,14 @@ internal sealed class DailyStatsStore : IDisposable
         public required string ExePath { get; init; }
         public TimeSpan OpenDuration { get; set; }
         public bool IsCurrentlyOpen { get; set; }
+    }
+
+    private sealed class TitleAccumulator
+    {
+        public string? Title { get; init; }
+        public string? UrlHost { get; init; }
+        public TimeSpan Duration { get; set; }
+        public int SessionCount { get; set; }
+        public bool IsExcluded { get; set; }
     }
 }
