@@ -119,79 +119,6 @@
                                  Text="{Binding SearchQuery, Mode=TwoWay}" />
                     </StackPanel>
 
-                    <Popup PlacementTarget="{Binding #SearchBox}"
-                           Placement="BottomEdgeAlignedLeft"
-                           IsOpen="{Binding ShowSearchPopup}"
-                           IsLightDismissEnabled="False"
-                           Width="380">
-                        <Border Classes="panel" Padding="0" MaxHeight="360">
-                            <Grid RowDefinitions="36,*">
-                                <Border BorderBrush="{DynamicResource AppBorderBrush}"
-                                        BorderThickness="0,0,0,1"
-                                        Padding="14,0"
-                                        Background="{DynamicResource AppSurfaceAltBrush}">
-                                    <TextBlock Text="Search results"
-                                               FontSize="12"
-                                               FontWeight="SemiBold"
-                                               VerticalAlignment="Center" />
-                                </Border>
-                                <ScrollViewer Grid.Row="1"
-                                              MaxHeight="320"
-                                              VerticalScrollBarVisibility="Auto"
-                                              IsVisible="{Binding HasSearchResults}">
-                                    <ListBox Classes="plain-list"
-                                             ItemsSource="{Binding SearchResults}"
-                                             SelectedItem="{Binding SelectedSearchItem, Mode=TwoWay}">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:TitleSearchItemViewModel">
-                                                <Panel>
-                                                    <Border Padding="14,4,14,2" IsVisible="{Binding IsHeader}">
-                                                        <TextBlock Text="{Binding AppDisplayName}"
-                                                                   Classes="muted"
-                                                                   FontSize="11"
-                                                                   FontWeight="SemiBold" />
-                                                    </Border>
-                                                    <Border Classes="app-row"
-                                                            Padding="14,7"
-                                                            BorderBrush="{DynamicResource AppBorderBrush}"
-                                                            BorderThickness="0,0,0,1"
-                                                            IsVisible="{Binding !IsHeader}">
-                                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                                                            <TextBlock Text="{Binding TimeText}"
-                                                                       Classes="muted"
-                                                                       FontSize="11"
-                                                                       VerticalAlignment="Center" />
-                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                                                                <TextBlock Text="{Binding TitleText}"
-                                                                           Classes="search-hit-title"
-                                                                           Classes.excluded="{Binding IsExcluded}"
-                                                                           FontSize="12"
-                                                                           TextTrimming="CharacterEllipsis"
-                                                                           VerticalAlignment="Center" />
-                                                                <TextBlock Text="Excluded"
-                                                                           Classes="muted"
-                                                                           FontSize="10"
-                                                                           IsVisible="{Binding IsExcluded}"
-                                                                           VerticalAlignment="Center" />
-                                                            </StackPanel>
-                                                        </Grid>
-                                                    </Border>
-                                                </Panel>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                </ScrollViewer>
-                                <StackPanel Grid.Row="1"
-                                            Spacing="4"
-                                            Margin="14"
-                                            IsVisible="{Binding ShowSearchEmptyState}">
-                                    <TextBlock Classes="empty-title" Text="No matches" />
-                                    <TextBlock Classes="empty-body" Text="No captured titles or hosts match that search for this day." />
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                    </Popup>
-
                     <StackPanel Orientation="Horizontal"
                                 Spacing="6"
                                 VerticalAlignment="Center"
@@ -244,6 +171,91 @@
                                 Padding="12,7" />
                     </StackPanel>
                 </StackPanel>
+
+                <!-- Not nested inside the Spacing="20" StackPanel above: a Popup measures to
+                     zero size but stays IsVisible=true while closed, so as a StackPanel child
+                     it would still claim its share of that panel's inter-item Spacing. -->
+                <Popup PlacementTarget="{Binding #SearchBox}"
+                       Placement="BottomEdgeAlignedLeft"
+                       IsOpen="{Binding ShowSearchPopup}"
+                       IsLightDismissEnabled="False"
+                       Width="380">
+                    <Border Classes="panel" Padding="0" MaxHeight="360">
+                        <Grid RowDefinitions="36,*">
+                            <Border BorderBrush="{DynamicResource AppBorderBrush}"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="14,0"
+                                    Background="{DynamicResource AppSurfaceAltBrush}">
+                                <TextBlock Text="Search results"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                            <ScrollViewer Grid.Row="1"
+                                          MaxHeight="320"
+                                          VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding HasSearchResults}">
+                                <ListBox Classes="plain-list"
+                                         ItemsSource="{Binding SearchResults}"
+                                         SelectedItem="{Binding SelectedSearchItem, Mode=TwoWay}">
+                                    <ListBox.Styles>
+                                        <!-- A header row is a labeled divider, not a result:
+                                             selecting one would silently no-op (SelectedSearchItem's
+                                             setter only reacts to a row with a SegmentId) while
+                                             leaving it visibly highlighted. -->
+                                        <Style Selector="ListBoxItem" x:DataType="vm:TitleSearchItemViewModel">
+                                            <Setter Property="IsEnabled" Value="{Binding !IsHeader}" />
+                                        </Style>
+                                    </ListBox.Styles>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:TitleSearchItemViewModel">
+                                            <Panel>
+                                                <Border Padding="14,4,14,2" IsVisible="{Binding IsHeader}">
+                                                    <TextBlock Text="{Binding AppDisplayName}"
+                                                               Classes="muted"
+                                                               FontSize="11"
+                                                               FontWeight="SemiBold" />
+                                                </Border>
+                                                <Border Classes="app-row"
+                                                        Padding="14,7"
+                                                        BorderBrush="{DynamicResource AppBorderBrush}"
+                                                        BorderThickness="0,0,0,1"
+                                                        IsVisible="{Binding !IsHeader}">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                        <TextBlock Text="{Binding TimeText}"
+                                                                   Classes="muted"
+                                                                   FontSize="11"
+                                                                   VerticalAlignment="Center" />
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                                            <TextBlock Text="{Binding TitleText}"
+                                                                       Classes="search-hit-title"
+                                                                       Classes.excluded="{Binding IsExcluded}"
+                                                                       FontSize="12"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       VerticalAlignment="Center" />
+                                                            <TextBlock Text="Excluded"
+                                                                       Classes="muted"
+                                                                       FontSize="10"
+                                                                       IsVisible="{Binding IsExcluded}"
+                                                                       VerticalAlignment="Center" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </Panel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </ScrollViewer>
+                            <StackPanel Grid.Row="1"
+                                        Spacing="4"
+                                        Margin="14"
+                                        IsVisible="{Binding ShowSearchEmptyState}">
+                                <TextBlock Classes="empty-title" Text="No matches" />
+                                <TextBlock Classes="empty-body" Text="No captured titles or hosts match that search for this day." />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Popup>
 
                 <StackPanel Grid.Column="2"
                             Orientation="Horizontal"

@@ -35,15 +35,6 @@ internal static class TitleUsagePresenter
             }
         }
 
-        if (rows.Count == 0)
-        {
-            // An explicit empty Items list (via HasItems below), not a placeholder row -- the
-            // view model uses this to show the "titles may be off" empty state instead of an
-            // ItemsControl that renders zero rows as a blank panel indistinguishable from a
-            // loading glitch.
-            return new TitleUsagePanel([], TimeSpan.Zero);
-        }
-
         var items = new List<TitleUsageItemViewModel>();
         if (isBrowser)
         {
@@ -85,11 +76,6 @@ internal sealed class TitleUsagePanel
     internal IReadOnlyList<TitleUsageItemViewModel> Items { get; }
 
     internal TimeSpan TotalDuration { get; }
-
-    /// <summary>True when there is at least one row to show. Equivalent to
-    /// <c>Items.Count > 0</c>, named so the view model's IsVisible bindings read as "is there
-    /// something to show" rather than repeating that arithmetic in more than one place.</summary>
-    internal bool HasItems => Items.Count > 0;
 }
 
 /// <summary>One row of the app-detail panel: either a browser host header (<see cref="IsHeader"/>,
@@ -110,27 +96,15 @@ internal sealed class TitleUsageItemViewModel
         IsHeader = true
     };
 
+    // MainWindowViewModel.FormatDuration, not a second copy: two independent copies of the
+    // same 13 lines agree today and could silently drift apart, which would make the panel's
+    // total (formatted by the view model) disagree with its own rows (formatted here).
     internal static TitleUsageItemViewModel Row(TitleUsageSummary row, bool nested) => new()
     {
         DisplayText = string.IsNullOrWhiteSpace(row.Title) ? "(untitled)" : row.Title!,
-        DurationText = FormatDuration(row.Duration),
+        DurationText = MainWindowViewModel.FormatDuration(row.Duration),
         SessionCountText = row.SessionCount.ToString("N0"),
         IsExcluded = row.IsExcluded,
         IsNested = nested
     };
-
-    private static string FormatDuration(TimeSpan duration)
-    {
-        if (duration.TotalHours >= 1)
-        {
-            return $"{(int)duration.TotalHours}h {duration.Minutes:D2}m";
-        }
-
-        if (duration.TotalMinutes >= 1)
-        {
-            return $"{duration.Minutes}m {duration.Seconds:D2}s";
-        }
-
-        return $"{Math.Max(0, (int)duration.TotalSeconds)}s";
-    }
 }

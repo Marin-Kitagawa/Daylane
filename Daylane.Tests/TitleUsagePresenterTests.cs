@@ -73,7 +73,7 @@ public class TitleUsagePresenterTests
         Assert.True(panel.Items[docsHeaderIndex + 1].IsNested);
         Assert.Equal("Docs Home", panel.Items[docsHeaderIndex + 1].DisplayText);
 
-        // 5 header rows + title rows accounted for, nothing extra or dropped.
+        // 2 headers + 3 titles accounted for, nothing extra or dropped.
         Assert.Equal(5, panel.Items.Count);
     }
 
@@ -86,7 +86,7 @@ public class TitleUsagePresenterTests
 
         Assert.Equal(2, panel.Items.Count);
         Assert.True(panel.Items[0].IsHeader);
-        Assert.Equal(TitleUsagePresenter.OtherHostLabel, panel.Items[0].DisplayText);
+        Assert.Equal("Other", panel.Items[0].DisplayText);
         Assert.True(panel.Items[1].IsNested);
         Assert.Equal("chrome://settings", panel.Items[1].DisplayText);
     }
@@ -115,7 +115,6 @@ public class TitleUsagePresenterTests
         var panel = TitleUsagePresenter.Build([], isBrowser: false);
 
         Assert.Empty(panel.Items);
-        Assert.False(panel.HasItems);
         Assert.Equal(TimeSpan.Zero, panel.TotalDuration);
     }
 }

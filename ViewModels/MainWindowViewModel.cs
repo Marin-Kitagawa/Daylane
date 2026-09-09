@@ -103,12 +103,21 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly ObservableCollection<TitleSearchItemViewModel> _searchResults = [];
     private TitleSearchItemViewModel? _selectedSearchItem;
 
+    // Debounces SearchQuery: without it, every keystroke would run SearchTitles synchronously
+    // against _dbWriteLock, which the background writer also takes.
+    private readonly DispatcherTimer _searchDebounceTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+
     public MainWindowViewModel(TrackingService tracking)
     {
         _tracking = tracking;
         _settings = tracking.Settings;
         _tracking.PropertyChanged += OnTrackingPropertyChanged;
         SyncPrivacyLists();
+        _searchDebounceTimer.Tick += (_, _) =>
+        {
+            _searchDebounceTimer.Stop();
+            RefreshSearch();
+        };
 
         // Settings.Changed is raised outside the service's lock and can arrive on any thread
         // (the tray's startup checkbox writes from the UI thread, but nothing guarantees that
@@ -371,7 +380,22 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsSearchActive));
             OnPropertyChanged(nameof(ShowSearchPopup));
-            RefreshSearch();
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                // Closing (e.g. SelectedSearchItem clearing the query after a pick) must be
+                // instant -- there is no DB query involved, so nothing to debounce, and a
+                // 200ms lag here would read as the popup failing to close promptly.
+                _searchDebounceTimer.Stop();
+                RefreshSearch();
+            }
+            else
+            {
+                // Debounced, not immediate: each keystroke would otherwise run SearchTitles
+                // synchronously against _dbWriteLock, which the background writer also takes.
+                _searchDebounceTimer.Stop();
+                _searchDebounceTimer.Start();
+            }
         }
     }
 
@@ -394,11 +418,22 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         get => _selectedSearchItem;
         set
         {
+            if (ReferenceEquals(_selectedSearchItem, value))
+            {
+                return;
+            }
+
             _selectedSearchItem = value;
             OnPropertyChanged();
             if (value is { SegmentId: long id })
             {
                 SelectedSegmentId = id;
+
+                // Picking a result both jumps to that segment AND closes the popup -- without
+                // this the 380x360 dropdown stays parked over the Day view the user was just
+                // sent to, with IsLightDismissEnabled left off deliberately (light dismiss would
+                // fight the search TextBox for focus while typing).
+                SearchQuery = "";
             }
         }
     }
@@ -1421,12 +1456,15 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     /// <summary>Rebuilds SearchResults from SearchTitles for SearchQuery over the selected day
     /// (the Day view's "current period"), grouped by app -- pure presentation over a query
     /// Task 11 already covers, so unlike RefreshSelectedAppTitles this has no pulled-out helper
-    /// or dedicated tests.</summary>
+    /// or dedicated tests. Called both from the debounced SearchQuery path and, unconditionally,
+    /// from every RefreshDay tick (every 5s while today is selected) -- so it only actually
+    /// touches _searchResults when the result set changed, rather than blindly Clear+rebuilding
+    /// underneath a popup the user may currently have scrolled or selected a row in.</summary>
     private void RefreshSearch()
     {
-        _searchResults.Clear();
-
         string query = _searchQuery.Trim();
+        var next = new List<TitleSearchItemViewModel>();
+
         if (query.Length > 0)
         {
             DateTime startLocal = SelectedDay.Date;
@@ -1439,16 +1477,52 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
             foreach (var group in groups)
             {
-                _searchResults.Add(TitleSearchItemViewModel.Header(group.Key));
+                next.Add(TitleSearchItemViewModel.Header(group.Key));
                 foreach (var hit in group.OrderByDescending(s => s.StartUtc))
                 {
-                    _searchResults.Add(TitleSearchItemViewModel.Row(hit));
+                    next.Add(TitleSearchItemViewModel.Row(hit));
                 }
             }
         }
 
+        if (SearchResultsUnchanged(next))
+        {
+            return;
+        }
+
+        _searchResults.Clear();
+        foreach (var item in next)
+        {
+            _searchResults.Add(item);
+        }
+
         OnPropertyChanged(nameof(HasSearchResults));
         OnPropertyChanged(nameof(ShowSearchEmptyState));
+    }
+
+    /// <summary>Identity-only comparison (header app name, or hit SegmentId) against what is
+    /// already shown -- not a full field comparison, since a matching segment's already-closed
+    /// title/host/excluded fields do not change between two refreshes of the same query.</summary>
+    private bool SearchResultsUnchanged(IReadOnlyList<TitleSearchItemViewModel> next)
+    {
+        if (_searchResults.Count != next.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < next.Count; i++)
+        {
+            TitleSearchItemViewModel current = _searchResults[i];
+            TitleSearchItemViewModel candidate = next[i];
+            if (current.IsHeader != candidate.IsHeader
+                || current.SegmentId != candidate.SegmentId
+                || current.AppDisplayName != candidate.AppDisplayName)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private bool TryPatchSegmentItems(IReadOnlyList<ActivitySegment> ordered)
@@ -1564,7 +1638,11 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         return $"Peak {label} · {FormatDurationShort(TimeSpan.FromMinutes(hours[peak]))}";
     }
 
-    private static string FormatDuration(TimeSpan duration)
+    /// <summary>internal, not private: TitleUsagePresenter.TitleUsageItemViewModel.Row also
+    /// formats a duration for the same panel this feeds, and a second copy would let the two
+    /// drift apart -- the panel total (formatted here) disagreeing with its own rows (formatted
+    /// there).</summary>
+    internal static string FormatDuration(TimeSpan duration)
     {
         if (duration.TotalHours >= 1)
         {
