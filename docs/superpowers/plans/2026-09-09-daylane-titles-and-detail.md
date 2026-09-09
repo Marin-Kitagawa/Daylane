@@ -841,6 +841,27 @@ public class TitlePersistenceTests
 
         Assert.Equal(0L, ReadRow(temp).Excluded);
     }
+
+    [Fact]
+    public void ExclusionAndStorage_AgreeOnTheSameTitle()
+    {
+        // The live decision and Task 9's recompute must reach the same verdict, and the
+        // recompute can only ever see the stored title. So a stripped title means a
+        // title-keyword rule does not match — live or on recompute.
+        var rules = new[] { new IgnoreRule("chrome", "mail") };
+        var captured = App("chrome", "Inbox - mail");
+
+        // Titles off: the stored title is null, so the keyword rule cannot match.
+        ForegroundApp stored = captured with { WindowTitle = null, UrlHost = null };
+        Assert.False(IgnoreRules.IsExcluded(stored.ProcessName, stored.WindowTitle, rules));
+
+        // Titles on: the stored title is the real one, so it matches.
+        Assert.True(IgnoreRules.IsExcluded(captured.ProcessName, captured.WindowTitle, rules));
+
+        // A whole-process rule works either way.
+        var wholeProcess = new[] { new IgnoreRule("chrome", null) };
+        Assert.True(IgnoreRules.IsExcluded(stored.ProcessName, stored.WindowTitle, wholeProcess));
+    }
 }
 ```
 
@@ -876,30 +897,37 @@ In `Services/TrackingService.cs`, where the segment is opened from `OnForeground
     {
         DaylaneSettings settings = Settings.Current;
 
-        excluded = IgnoreRules.IsExcluded(app.ProcessName, app.WindowTitle, settings.IgnoreRules);
+        ForegroundApp stored = app;
 
         if (!settings.RecordWindowTitles)
         {
-            return app with { WindowTitle = null, UrlHost = null };
+            stored = app with { WindowTitle = null, UrlHost = null };
         }
-
-        if (PrivacyKeywords.Suppresses(app.WindowTitle, app.UrlHost, settings.PrivacyKeywords))
+        else if (PrivacyKeywords.Suppresses(app.WindowTitle, app.UrlHost, settings.PrivacyKeywords))
         {
-            return app with { WindowTitle = null, UrlHost = null };
+            stored = app with { WindowTitle = null, UrlHost = null };
         }
 
-        return app;
+        // Evaluated against the title that will be STORED, not the one just read from the
+        // window. Task 9's recompute can only ever see the stored title, so judging live
+        // capture by a richer title would make the two disagree: a row excluded now by a
+        // title keyword would silently un-exclude itself on the next unrelated rule edit.
+        // Consequence, and it is the intended one: title-keyword rules require title capture
+        // to be on. Whole-process rules (TitleKeyword = null) work regardless.
+        excluded = IgnoreRules.IsExcluded(stored.ProcessName, stored.WindowTitle, settings.IgnoreRules);
+
+        return stored;
     }
 ```
 
-Note the ordering: **exclusion is evaluated against the title before suppression strips it.** A user who both ignores a window and privacy-suppresses it still gets the time excluded — the two rules are independent, and letting suppression defeat exclusion would silently start counting time the user asked to drop.
+**This ordering is load-bearing and was corrected during the pre-flight scan.** The obvious arrangement — evaluate exclusion first, against the real title, so that privacy suppression cannot "defeat" an ignore rule — produces a live result the recompute in Task 9 can never reproduce, because the recompute reads the stored title and the stored title is `NULL`. The row would flip from excluded to counted the next time any rule changed, silently. Consistency between live capture and recompute wins; a user who wants a window excluded regardless of title capture uses a whole-process rule.
 
 Call it at segment open and pass the result through.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `dotnet test Daylane.Tests/Daylane.Tests.csproj`
-Expected: PASS, 159 tests.
+Expected: PASS, 160 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1125,7 +1153,7 @@ internal static class BrowserHost
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `dotnet test Daylane.Tests/Daylane.Tests.csproj`
-Expected: PASS, 179 tests.
+Expected: PASS, 180 tests.
 
 - [ ] **Step 5: Add the UI Automation walk**
 
@@ -1321,7 +1349,7 @@ Wrap the call in `try`/`catch`, logging and continuing: a failed recompute must 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `dotnet test Daylane.Tests/Daylane.Tests.csproj`
-Expected: PASS, 182 tests.
+Expected: PASS, 183 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1450,7 +1478,7 @@ Add `GetTitleUsage` to `DailyStatsStore`, following the existing range-query pat
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `dotnet test Daylane.Tests/Daylane.Tests.csproj`
-Expected: PASS, 185 tests.
+Expected: PASS, 186 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1577,7 +1605,7 @@ Add `SearchTitles` to `DailyStatsStore`. Return empty immediately for a blank qu
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `dotnet test Daylane.Tests/Daylane.Tests.csproj`
-Expected: PASS, 191 tests.
+Expected: PASS, 192 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1816,4 +1844,4 @@ description; keystrokes, screenshots and mouse coordinates stay."
 
 **Type consistency.** `IgnoreRule(ProcessName, TitleKeyword)` is identical across Tasks 1, 2, 9 and 12. `IgnoreRules.IsExcluded(string, string?, IReadOnlyList<IgnoreRule>)` matches between Tasks 2, 6 and 9. `PrivacyKeywords.Suppresses(string?, string?, IReadOnlyList<string>)` matches between 3 and 6. `ForegroundApp.WindowTitle` / `.UrlHost` are used identically in 5, 6, 8, 10 and 11. `OpenSegment(ForegroundApp, DateTime, bool excluded = false)` is consistent from Task 6 onward.
 
-**Test count** rises across tasks 1–12: 124 → 127 → 140 → 148 → 150 → 155 → 159 → 161 → 179 → 182 → 185 → 191 → 193. Tasks 13 and 14 add none by design. If a task's full-suite run reports fewer than its step says, a test was dropped rather than added — find it before moving on.
+**Test count** rises across tasks 1–12: 124 → 127 → 140 → 148 → 150 → 155 → 160 → 162 → 180 → 183 → 186 → 192 → 194. Tasks 13 and 14 add none by design. If a task's full-suite run reports fewer than its step says, a test was dropped rather than added — find it before moving on.
