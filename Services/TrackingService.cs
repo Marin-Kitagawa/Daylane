@@ -472,6 +472,16 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
                 openAt = DateTime.UtcNow;
             }
 
+            // Once per segment, never on the one-second poll: a UI Automation descendant walk
+            // costs tens of milliseconds. Kept outside CapturePolicy.Apply deliberately -- Apply
+            // is pure and is reused by the rule-change recompute, where there is no live
+            // foreground window to interrogate. Enriching before Apply also means a
+            // privacy-suppressed segment discards the host instead of storing it.
+            if (Settings.Current.RecordBrowserHost && BrowserHost.IsBrowser(app.ProcessName))
+            {
+                app = app with { UrlHost = BrowserHost.TryGetForegroundHost() };
+            }
+
             ForegroundApp stored = CapturePolicy.Apply(app, Settings.Current, out bool excluded);
             long id = _store.OpenSegment(stored, openAt, excluded);
             Volatile.Write(ref _openSegment, new OpenSegmentState(id, stored, openAt));
