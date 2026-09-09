@@ -111,6 +111,27 @@ internal sealed class ForegroundTracker : IDisposable
         return ResolveForegroundApp();
     }
 
+    private static string? ReadWindowTitle(IntPtr hwnd)
+    {
+        try
+        {
+            var buffer = new char[512];
+            int length = GetWindowTextW(hwnd, buffer, buffer.Length);
+            if (length <= 0)
+            {
+                return null;
+            }
+
+            string title = new string(buffer, 0, length).Trim();
+            return title.Length == 0 ? null : title;
+        }
+        catch (Exception)
+        {
+            // A title is never worth failing a poll over.
+            return null;
+        }
+    }
+
     private ForegroundApp ResolveForegroundApp()
     {
         IntPtr hwnd = GetForegroundWindow();
@@ -125,15 +146,17 @@ internal sealed class ForegroundTracker : IDisposable
             return ForegroundApp.Unknown;
         }
 
+        string? title = ReadWindowTitle(hwnd);
+
         if (processId == _cachedPid && _cachedByPid is { } cached)
         {
-            return cached;
+            return cached with { WindowTitle = title };
         }
 
         ForegroundApp resolved = ResolveProcess(processId);
         _cachedPid = processId;
         _cachedByPid = resolved;
-        return resolved;
+        return resolved with { WindowTitle = title };
     }
 
     private static ForegroundApp ResolveProcess(uint processId)
@@ -236,6 +259,9 @@ internal sealed class ForegroundTracker : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int GetWindowTextW(IntPtr hWnd, [Out] char[] lpString, int nMaxCount);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, uint processId);
