@@ -39,6 +39,13 @@ internal static class BrowserHost
         return KnownBrowsers.Contains(name, StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>The longest a host may be and still be a valid DNS name. Anything longer is a
+    /// crafted authority, not a site: a URL may carry tens of thousands of labels and still parse,
+    /// and the result is persisted verbatim to an uncapped TEXT column once per segment.
+    /// WindowTitle is bounded by ForegroundTracker's 512-char buffer; UrlHost has no such natural
+    /// limit, so it needs an explicit one.</summary>
+    private const int MaxHostLength = 253;
+
     /// <summary>Host only — never the path, query or fragment. The rest is not truncated at
     /// display time, it is never persisted.</summary>
     internal static string? HostFromUrl(string? candidate)
@@ -53,7 +60,15 @@ internal static class BrowserHost
             return null;
         }
 
-        return string.IsNullOrWhiteSpace(uri.Host) ? null : uri.Host;
+        // Empty host is not merely uninteresting, it is dangerous to return: "about:blank" and
+        // "file:///C:/x" parse as absolute URIs with Host == "", and an empty string would count
+        // as a hit and stop the walk before it ever reached the address bar.
+        if (string.IsNullOrWhiteSpace(uri.Host) || uri.Host.Length > MaxHostLength)
+        {
+            return null;
+        }
+
+        return uri.Host;
     }
 
     /// <summary>Walks the foreground window's UI Automation tree for the first Edit or Document
@@ -63,16 +78,26 @@ internal static class BrowserHost
     /// a known browser, only when the user enabled the setting</b> — never on the one-second poll
     /// path. Returns null for every failure, including a COM failure: capture is best-effort and
     /// must never be able to take the tracker down.</summary>
-    internal static string? TryGetForegroundHost()
-    {
-        IntPtr hwnd = GetForegroundWindow();
-        return hwnd == IntPtr.Zero ? null : HostForWindow(hwnd);
-    }
+    internal static string? TryGetForegroundHost() => HostForWindow();
 
-    private static string? HostForWindow(IntPtr hwnd)
+    private static string? HostForWindow()
     {
         try
         {
+            // Inside the try with everything else. A missing user32.dll export is vanishingly
+            // unlikely, but this runs on a threadpool timer callback where an escaping exception
+            // is an unhandled process crash -- which is the entire class of failure the catch
+            // below exists to prevent.
+            IntPtr hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            // The RCWs below are released by the finalizer, not deterministically. Measured over
+            // 30 consecutive walks this cost 41 KB of heap growth with no leak, so it stays a
+            // note rather than a Marshal.FinalReleaseComObject rewrite -- which would have to
+            // release every element in the array and is easy to get wrong.
             Type? comType = Type.GetTypeFromCLSID(CLSID_CUIAutomation);
             if (comType is null || Activator.CreateInstance(comType) is not IUIAutomation automation)
             {
