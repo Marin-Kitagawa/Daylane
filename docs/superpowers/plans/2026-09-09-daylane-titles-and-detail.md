@@ -762,13 +762,14 @@ cached title would go stale on every tab switch."
 ### Task 6: Persist title and Excluded on segment open
 
 **Files:**
+- Create: `Services/CapturePolicy.cs`
 - Modify: `Services/DailyStatsStore.cs`
 - Modify: `Services/TrackingService.cs`
 - Test: `Daylane.Tests/TitlePersistenceTests.cs`
 
 **Interfaces:**
 - Consumes: `IgnoreRules.IsExcluded`, `PrivacyKeywords.Suppresses`, `ForegroundApp.WindowTitle`, settings from Task 1.
-- Produces: `OpenSegment` writes `WindowTitle`, `UrlHost` and `Excluded`; `TrackingService` decides what the segment is allowed to carry.
+- Produces: `OpenSegment(ForegroundApp app, DateTime startUtc, bool excluded = false)` writes `WindowTitle`, `UrlHost` and `Excluded`; `CapturePolicy.Apply(ForegroundApp app, DaylaneSettings settings, out bool excluded)` returns the app as it will be stored. Task 9 reuses `CapturePolicy` for its recompute.
 
 **The decision belongs in `TrackingService`, not the store.** The store persists what it is given; the service applies policy. That keeps the two rule systems in one readable place.
 
@@ -845,22 +846,35 @@ public class TitlePersistenceTests
     [Fact]
     public void ExclusionAndStorage_AgreeOnTheSameTitle()
     {
-        // The live decision and Task 9's recompute must reach the same verdict, and the
-        // recompute can only ever see the stored title. So a stripped title means a
-        // title-keyword rule does not match — live or on recompute.
-        var rules = new[] { new IgnoreRule("chrome", "mail") };
+        // The live decision and the rule-change recompute must reach the same verdict, and
+        // the recompute can only ever see the stored title. So a stripped title means a
+        // title-keyword rule does not match — live or on recompute. This drives the real
+        // CapturePolicy instead of re-implementing its branch, so deleting the policy fails
+        // the test rather than silently passing it.
         var captured = App("chrome", "Inbox - mail");
+        var keyword = new DaylaneSettings
+        {
+            IgnoreRules = [new IgnoreRule("chrome", "mail")]
+        }.Normalize();
 
-        // Titles off: the stored title is null, so the keyword rule cannot match.
-        ForegroundApp stored = captured with { WindowTitle = null, UrlHost = null };
-        Assert.False(IgnoreRules.IsExcluded(stored.ProcessName, stored.WindowTitle, rules));
+        // Titles off (the default): the stored title is null, so the keyword cannot match.
+        ForegroundApp storedOff = CapturePolicy.Apply(captured, keyword, out bool excludedOff);
+        Assert.Null(storedOff.WindowTitle);
+        Assert.False(excludedOff);
 
         // Titles on: the stored title is the real one, so it matches.
-        Assert.True(IgnoreRules.IsExcluded(captured.ProcessName, captured.WindowTitle, rules));
+        ForegroundApp storedOn = CapturePolicy.Apply(
+            captured, keyword with { RecordWindowTitles = true }, out bool excludedOn);
+        Assert.Equal("Inbox - mail", storedOn.WindowTitle);
+        Assert.True(excludedOn);
 
         // A whole-process rule works either way.
-        var wholeProcess = new[] { new IgnoreRule("chrome", null) };
-        Assert.True(IgnoreRules.IsExcluded(stored.ProcessName, stored.WindowTitle, wholeProcess));
+        var wholeProcess = new DaylaneSettings
+        {
+            IgnoreRules = [new IgnoreRule("chrome", null)]
+        }.Normalize();
+        CapturePolicy.Apply(captured, wholeProcess, out bool excludedWhole);
+        Assert.True(excludedWhole);
     }
 }
 ```
@@ -888,41 +902,63 @@ Add `WindowTitle, UrlHost, Excluded` to the insert's column list and `$title, $h
 
 Leave `DeviceId`, `UpdatedAt`, `LocalDate` and `LocalHour` exactly as they are — they are already correct.
 
-- [ ] **Step 4: Apply policy in the tracking service**
+- [ ] **Step 4: Extract the capture policy**
 
-In `Services/TrackingService.cs`, where the segment is opened from `OnForegroundChanged`, decide what the segment may carry:
+Policy goes in its own file rather than a private method on `TrackingService`. Constructing a
+`TrackingService` starts timers and opens a database, so a private method there is unreachable
+from a test — and Task 9's recompute needs to reach the same verdict from a different caller.
+
+Create `Services/CapturePolicy.cs`:
 
 ```csharp
-    private ForegroundApp ApplyCapturePolicy(ForegroundApp app, out bool excluded)
+using Daylane.Models;
+
+namespace Daylane.Services;
+
+/// <summary>Decides what detail a segment may carry, and whether its time counts at all.
+///
+/// Pure and static on purpose: live capture (<see cref="TrackingService"/>) and the
+/// rule-change recompute share one verdict, and tests exercise the real decision rather
+/// than a re-implementation of it.</summary>
+internal static class CapturePolicy
+{
+    internal static ForegroundApp Apply(ForegroundApp app, DaylaneSettings settings, out bool excluded)
     {
-        DaylaneSettings settings = Settings.Current;
-
-        ForegroundApp stored = app;
-
-        if (!settings.RecordWindowTitles)
-        {
-            stored = app with { WindowTitle = null, UrlHost = null };
-        }
-        else if (PrivacyKeywords.Suppresses(app.WindowTitle, app.UrlHost, settings.PrivacyKeywords))
-        {
-            stored = app with { WindowTitle = null, UrlHost = null };
-        }
+        // Two distinct reasons to store nothing: the user never opted into titles at all,
+        // or this particular window matched a privacy keyword. Same outcome either way.
+        ForegroundApp stored =
+            !settings.RecordWindowTitles
+            || PrivacyKeywords.Suppresses(app.WindowTitle, app.UrlHost, settings.PrivacyKeywords)
+                ? app with { WindowTitle = null, UrlHost = null }
+                : app;
 
         // Evaluated against the title that will be STORED, not the one just read from the
-        // window. Task 9's recompute can only ever see the stored title, so judging live
-        // capture by a richer title would make the two disagree: a row excluded now by a
-        // title keyword would silently un-exclude itself on the next unrelated rule edit.
+        // window. The recompute can only ever see the stored title, so judging live capture
+        // by a richer title would make the two disagree: a row excluded now by a title
+        // keyword would silently un-exclude itself on the next unrelated rule edit.
         // Consequence, and it is the intended one: title-keyword rules require title capture
         // to be on. Whole-process rules (TitleKeyword = null) work regardless.
         excluded = IgnoreRules.IsExcluded(stored.ProcessName, stored.WindowTitle, settings.IgnoreRules);
 
         return stored;
     }
+}
 ```
 
 **This ordering is load-bearing and was corrected during the pre-flight scan.** The obvious arrangement — evaluate exclusion first, against the real title, so that privacy suppression cannot "defeat" an ignore rule — produces a live result the recompute in Task 9 can never reproduce, because the recompute reads the stored title and the stored title is `NULL`. The row would flip from excluded to counted the next time any rule changed, silently. Consistency between live capture and recompute wins; a user who wants a window excluded regardless of title capture uses a whole-process rule.
 
-Call it at segment open and pass the result through.
+Then in `Services/TrackingService.cs`, at the single segment-open call site, pass the policy's
+result through instead of the raw app:
+
+```csharp
+            ForegroundApp stored = CapturePolicy.Apply(app, Settings.Current, out bool excluded);
+            long id = _store.OpenSegment(stored, openAt, excluded);
+            Volatile.Write(ref _openSegment, new OpenSegmentState(id, stored, openAt));
+            _currentAppName = stored.DisplayName;
+```
+
+`OpenSegmentState` carries `stored`, not `app`, so no in-memory state holds a title that was
+never persisted. `DisplayName` is unaffected either way.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -991,11 +1027,13 @@ public class CaptureDefaultsTests
         var settings = new DaylaneSettings().Normalize();
         Assert.False(settings.RecordWindowTitles);
 
-        // Mirrors TrackingService.ApplyCapturePolicy's first branch.
-        ForegroundApp stored = settings.RecordWindowTitles ? app : app with { WindowTitle = null, UrlHost = null };
+        // Drives the real production policy. An earlier draft re-implemented the branch
+        // inline, which would have passed even if CapturePolicy were deleted outright.
+        ForegroundApp stored = CapturePolicy.Apply(app, settings, out bool excluded);
 
         Assert.Null(stored.WindowTitle);
         Assert.Null(stored.UrlHost);
+        Assert.False(excluded);
     }
 }
 ```
@@ -1169,16 +1207,21 @@ Write the P/Invoke and interop declarations at the bottom of the class, matching
 
 - [ ] **Step 6: Enrich at segment open**
 
-In `Services/TrackingService.cs`, extend `ApplyCapturePolicy` so the host is fetched exactly once per segment, and only when it can be used:
+In `Services/TrackingService.cs`, fetch the host at the segment-open call site — once per
+segment, and only when it can be used — then hand the enriched app to the policy:
 
 ```csharp
-        if (settings.RecordBrowserHost && BrowserHost.IsBrowser(app.ProcessName))
-        {
-            app = app with { UrlHost = BrowserHost.TryGetForegroundHost() };
-        }
+            if (Settings.Current.RecordBrowserHost && BrowserHost.IsBrowser(app.ProcessName))
+            {
+                app = app with { UrlHost = BrowserHost.TryGetForegroundHost() };
+            }
+
+            ForegroundApp stored = CapturePolicy.Apply(app, Settings.Current, out bool excluded);
 ```
 
-Place it **before** the privacy check, so a suppressed segment discards the host rather than storing it.
+The fetch stays outside `CapturePolicy` deliberately: `Apply` is pure and is reused by Task 9's
+recompute, where there is no live foreground window to interrogate. Because enrichment happens
+before `Apply`, a privacy-suppressed segment discards the host rather than storing it.
 
 - [ ] **Step 7: Verify the build and full suite**
 
@@ -1844,4 +1887,3 @@ description; keystrokes, screenshots and mouse coordinates stay."
 
 **Type consistency.** `IgnoreRule(ProcessName, TitleKeyword)` is identical across Tasks 1, 2, 9 and 12. `IgnoreRules.IsExcluded(string, string?, IReadOnlyList<IgnoreRule>)` matches between Tasks 2, 6 and 9. `PrivacyKeywords.Suppresses(string?, string?, IReadOnlyList<string>)` matches between 3 and 6. `ForegroundApp.WindowTitle` / `.UrlHost` are used identically in 5, 6, 8, 10 and 11. `OpenSegment(ForegroundApp, DateTime, bool excluded = false)` is consistent from Task 6 onward.
 
-**Test count** rises across tasks 1–12: 124 → 127 → 140 → 148 → 150 → 155 → 160 → 162 → 180 → 183 → 186 → 192 → 194. Tasks 13 and 14 add none by design. If a task's full-suite run reports fewer than its step says, a test was dropped rather than added — find it before moving on.
