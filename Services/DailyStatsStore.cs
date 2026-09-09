@@ -534,6 +534,69 @@ internal sealed class DailyStatsStore : IDisposable
             .ToList();
     }
 
+    /// <summary>
+    /// "What was I doing when I was working on X" search over window titles and browser hosts.
+    /// Filters on <c>LocalDate</c> first (text range, same pattern as
+    /// <see cref="GetTotalsForDateRange"/>'s LogDate query) rather than on StartUtc, so the scan
+    /// can use <c>IX_ActivitySegment_LocalDate_Title</c>. Plain LIKE, not FTS: sub-project 6
+    /// brings FTS5 for screen-memory text and a second search implementation now would be two to
+    /// maintain. Excluded rows are returned, not dropped, matching <see cref="GetTitleUsage"/>.
+    /// </summary>
+    public IReadOnlyList<ActivitySegment> SearchTitles(
+        string query,
+        DateTime rangeStartLocal,
+        DateTime rangeEndLocal,
+        int limit = 200)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Array.Empty<ActivitySegment>();
+        }
+
+        // rangeEndLocal is exclusive (mirrors GetSegmentsForLocalRange/GetTitleUsage), so the
+        // inclusive LocalDate upper bound is the day before it, not rangeEndLocal's own day.
+        string startKey = rangeStartLocal.Date.ToString("yyyy-MM-dd");
+        string endKey = rangeEndLocal.AddTicks(-1).Date.ToString("yyyy-MM-dd");
+        string pattern = "%" + EscapeLikePattern(query) + "%";
+
+        lock (_dbWriteLock)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT Id, StartUtc, EndUtc, ProcessName, ExePath, DisplayName, IsIdle, KeyCount, MouseClickCount,
+                    WindowTitle, UrlHost, Excluded
+                FROM ActivitySegment
+                WHERE LocalDate >= $start
+                  AND LocalDate <= $end
+                  AND (WindowTitle LIKE $q ESCAPE '\' OR UrlHost LIKE $q ESCAPE '\')
+                ORDER BY StartUtc DESC
+                LIMIT $limit;
+                """;
+            command.Parameters.AddWithValue("$start", startKey);
+            command.Parameters.AddWithValue("$end", endKey);
+            command.Parameters.AddWithValue("$q", pattern);
+            command.Parameters.AddWithValue("$limit", limit);
+
+            var results = new List<ActivitySegment>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                results.Add(ReadSegment(reader));
+            }
+
+            return results;
+        }
+    }
+
+    // Escapes LIKE metacharacters (and the escape character itself) so user input is matched
+    // literally under ESCAPE '\': without this, a query containing "%" or "_" would silently
+    // become a wildcard instead of a literal character to search for.
+    private static string EscapeLikePattern(string value) =>
+        value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
     internal void PruneOldData(int retentionDays)
     {
         lock (_dbWriteLock)

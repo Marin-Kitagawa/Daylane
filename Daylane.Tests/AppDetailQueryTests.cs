@@ -8,15 +8,6 @@ public class AppDetailQueryTests
     private static ForegroundApp App(string process, string? title, string? host = null) =>
         new(process, $@"C:\Apps\{process}.exe", process, false) { WindowTitle = title, UrlHost = host };
 
-    // Segments are opened a few minutes before "now" but the query range below is derived from
-    // that same instant rather than from a fresh DateTime.Now.Date read - anchoring the range to
-    // the data avoids a local-midnight straddle flake between segment creation and the query.
-    private static (DateTime StartLocal, DateTime EndExclusiveLocal) UnambiguousRangeAround(DateTime anyUtcInstant)
-    {
-        DateTime anchor = anyUtcInstant.ToLocalTime().Date;
-        return (anchor.AddDays(-1), anchor.AddDays(2));
-    }
-
     [Fact]
     public void GetTitleUsage_GroupsByTitleAndSumsDuration()
     {
@@ -31,7 +22,7 @@ public class AppDetailQueryTests
         long c = store.OpenSegment(App("chrome", "Calendar"), start.AddMinutes(7));
         store.CloseSegment(c, start.AddMinutes(8), 0, 0);
 
-        var (rangeStart, rangeEnd) = UnambiguousRangeAround(start);
+        var (rangeStart, rangeEnd) = TestRanges.UnambiguousRangeAround(start);
         var rows = store.GetTitleUsage(@"C:\Apps\chrome.exe", rangeStart, rangeEnd);
 
         Assert.Equal(2, rows.Count);
@@ -51,7 +42,7 @@ public class AppDetailQueryTests
         long id = store.OpenSegment(App("chrome", "Ignored"), start, excluded: true);
         store.CloseSegment(id, start.AddMinutes(1), 0, 0);
 
-        var (rangeStart, rangeEnd) = UnambiguousRangeAround(start);
+        var (rangeStart, rangeEnd) = TestRanges.UnambiguousRangeAround(start);
         var rows = store.GetTitleUsage(@"C:\Apps\chrome.exe", rangeStart, rangeEnd);
 
         // Hiding excluded rows entirely would make the rule that excluded them undiscoverable.
@@ -69,7 +60,7 @@ public class AppDetailQueryTests
         long id = store.OpenSegment(App("chrome", "Inbox", "mail.example.com"), start);
         store.CloseSegment(id, start.AddMinutes(1), 0, 0);
 
-        var (rangeStart, rangeEnd) = UnambiguousRangeAround(start);
+        var (rangeStart, rangeEnd) = TestRanges.UnambiguousRangeAround(start);
         var rows = store.GetTitleUsage(@"C:\Apps\chrome.exe", rangeStart, rangeEnd);
 
         Assert.Equal("mail.example.com", rows[0].UrlHost);
@@ -87,7 +78,7 @@ public class AppDetailQueryTests
         long other = store.OpenSegment(App("notepad", "Untitled"), start);
         store.CloseSegment(other, start.AddMinutes(1), 0, 0);
 
-        var (rangeStart, rangeEnd) = UnambiguousRangeAround(start);
+        var (rangeStart, rangeEnd) = TestRanges.UnambiguousRangeAround(start);
         var rows = store.GetTitleUsage(@"C:\Apps\chrome.exe", rangeStart, rangeEnd);
 
         Assert.Single(rows);
@@ -105,7 +96,7 @@ public class AppDetailQueryTests
         // same open-segment handling AggregateAppUsage owns, not a second reimplementation of it.
         store.OpenSegment(App("chrome", "Inbox"), start);
 
-        var (rangeStart, rangeEnd) = UnambiguousRangeAround(start);
+        var (rangeStart, rangeEnd) = TestRanges.UnambiguousRangeAround(start);
         var rows = store.GetTitleUsage(@"C:\Apps\chrome.exe", rangeStart, rangeEnd);
 
         Assert.Single(rows);
