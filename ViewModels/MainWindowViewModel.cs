@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security;
 using System.Windows.Input;
@@ -658,7 +659,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private void AddPrivacyKeyword()
     {
         string keyword = NewPrivacyKeyword.Trim();
-        if (keyword.Length == 0)
+
+        // Case-insensitive, matching PrivacyKeywords.Suppresses' own comparison -- a duplicate
+        // that differs only in case would still be a duplicate to the matcher, so the UI's
+        // idea of "already there" must agree with it.
+        if (keyword.Length == 0
+            || _privacyKeywords.Any(existing => string.Equals(existing, keyword, StringComparison.OrdinalIgnoreCase)))
         {
             return;
         }
@@ -683,7 +689,19 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         string keyword = NewIgnoreRuleKeyword.Trim();
-        _ignoreRules.Add(new IgnoreRule(process, keyword.Length == 0 ? null : keyword));
+        var rule = new IgnoreRule(process, keyword.Length == 0 ? null : keyword);
+
+        // Case-insensitive on both fields, matching IgnoreRules.IsExcluded's own comparison of
+        // ProcessName -- a duplicate that differs only in case would still be a duplicate to
+        // the matcher, so the UI's idea of "already there" must agree with it.
+        if (_ignoreRules.Any(existing =>
+                string.Equals(existing.ProcessName, rule.ProcessName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(existing.TitleKeyword, rule.TitleKeyword, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        _ignoreRules.Add(rule);
         _settings.Update(s => s with { IgnoreRules = _ignoreRules.ToList() });
         NewIgnoreRuleProcess = "";
         NewIgnoreRuleKeyword = "";
@@ -695,6 +713,13 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         _settings.Update(s => s with { IgnoreRules = _ignoreRules.ToList() });
     }
 
+    /// <summary>
+    /// Refreshes PrivacyKeywords/IgnoreRules from the settings store. This -- not
+    /// SettingsChangeNotifier's flat re-raise list -- is what keeps these two in sync with any
+    /// writer's change: both are ObservableCollections handed out by reference, so
+    /// OnPropertyChanged(nameof(PrivacyKeywords)) would tell a bound ItemsControl nothing new
+    /// happened. See the comment in SettingsChangeNotifier.Properties.
+    /// </summary>
     private void SyncPrivacyLists()
     {
         _privacyKeywords.Clear();

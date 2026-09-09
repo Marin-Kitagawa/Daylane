@@ -96,4 +96,29 @@ public class TitlePersistenceTests
         CapturePolicy.Apply(captured, wholeProcess, out bool excludedWhole);
         Assert.True(excludedWhole);
     }
+
+    [Fact]
+    public void Apply_StripsHost_WhenRecordBrowserHostIsOffButTitlesAreOn()
+    {
+        // Deliberately not Normalize()'d: normalizing would clear RecordBrowserHost on its own
+        // whenever titles are off, so a settings object built that way would pass this test
+        // even if Apply's own strip did nothing. This pins Apply's strip specifically, which is
+        // what closes the mid-walk flip (RecordBrowserHost turned off while titles stay on).
+        // PrivacyKeywords/IgnoreRules are supplied directly (rather than left at their null
+        // default) since Apply reads both un-normalized and would otherwise null-reference.
+        var app = new ForegroundApp("chrome", @"C:\Apps\chrome.exe", "chrome", false)
+            { WindowTitle = "Inbox", UrlHost = "mail.google.com" };
+        var settings = new DaylaneSettings
+        {
+            RecordWindowTitles = true,
+            RecordBrowserHost = false,
+            PrivacyKeywords = Array.Empty<string>(),
+            IgnoreRules = Array.Empty<IgnoreRule>()
+        };
+
+        ForegroundApp stored = CapturePolicy.Apply(app, settings, out _);
+
+        Assert.Equal("Inbox", stored.WindowTitle);
+        Assert.Null(stored.UrlHost);
+    }
 }

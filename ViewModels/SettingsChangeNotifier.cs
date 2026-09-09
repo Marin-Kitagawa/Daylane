@@ -23,6 +23,14 @@ internal static class SettingsChangeNotifier
         nameof(MainWindowViewModel.RecordWindowTitles),
         nameof(MainWindowViewModel.RecordBrowserHost),
         nameof(MainWindowViewModel.CanRecordBrowserHost)
+
+        // PrivacyKeywords and IgnoreRules are deliberately NOT here. Both are
+        // ObservableCollections returned by the same reference on every read, so re-raising
+        // their property name is a no-op for a bound ItemsControl -- nothing tells it the
+        // CONTENTS changed. MainWindowViewModel.SyncPrivacyLists(), called from the same
+        // Settings.Changed handler that drives this list, is what actually refreshes them
+        // (for any writer, not just this view model's own add/remove commands). Adding these
+        // two names here would look like a fix and do nothing.
     ];
 
     internal static void Raise(Action<string> onPropertyChanged)
