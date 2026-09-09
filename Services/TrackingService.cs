@@ -472,9 +472,10 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
                 openAt = DateTime.UtcNow;
             }
 
-            long id = _store.OpenSegment(app, openAt);
-            Volatile.Write(ref _openSegment, new OpenSegmentState(id, app, openAt));
-            _currentAppName = app.DisplayName;
+            ForegroundApp stored = CapturePolicy.Apply(app, Settings.Current, out bool excluded);
+            long id = _store.OpenSegment(stored, openAt, excluded);
+            Volatile.Write(ref _openSegment, new OpenSegmentState(id, stored, openAt));
+            _currentAppName = stored.DisplayName;
         }
 
         Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(CurrentAppName)));

@@ -58,7 +58,7 @@ internal sealed class DailyStatsStore : IDisposable
         return (reader.GetInt64(0), reader.GetInt64(1));
     }
 
-    public long OpenSegment(ForegroundApp app, DateTime startUtc)
+    public long OpenSegment(ForegroundApp app, DateTime startUtc, bool excluded = false)
     {
         lock (_dbWriteLock)
         {
@@ -73,9 +73,9 @@ internal sealed class DailyStatsStore : IDisposable
             command.CommandText = """
                 INSERT INTO ActivitySegment (
                     StartUtc, EndUtc, ProcessName, ExePath, DisplayName, IsIdle, KeyCount, MouseClickCount,
-                    LocalDate, LocalHour, DeviceId, UpdatedAt)
+                    LocalDate, LocalHour, DeviceId, UpdatedAt, WindowTitle, UrlHost, Excluded)
                 VALUES ($start, NULL, $process, $exe, $display, $idle, 0, 0, $localDate, $localHour,
-                    $device, $now);
+                    $device, $now, $title, $host, $excluded);
                 """;
             command.Parameters.AddWithValue("$start", Timestamps.ToUtcText(startUtc));
             command.Parameters.AddWithValue("$process", app.ProcessName);
@@ -86,6 +86,9 @@ internal sealed class DailyStatsStore : IDisposable
             command.Parameters.AddWithValue("$localHour", ToLocalHour(startUtc));
             command.Parameters.AddWithValue("$device", _deviceId);
             command.Parameters.AddWithValue("$now", Timestamps.UtcNowText());
+            command.Parameters.AddWithValue("$title", (object?)app.WindowTitle ?? DBNull.Value);
+            command.Parameters.AddWithValue("$host", (object?)app.UrlHost ?? DBNull.Value);
+            command.Parameters.AddWithValue("$excluded", excluded ? 1 : 0);
             command.ExecuteNonQuery();
 
             using var idCommand = connection.CreateCommand();

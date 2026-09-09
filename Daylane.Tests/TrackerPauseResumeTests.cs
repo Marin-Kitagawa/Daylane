@@ -1,3 +1,4 @@
+using Daylane.Models;
 using Daylane.Services;
 
 namespace Daylane.Tests;
@@ -57,6 +58,34 @@ public class TrackerPauseResumeTests
         Assert.Equal(2, Volatile.Read(ref changes));
 
         tracker.Stop();
+    }
+
+    /// <summary>
+    /// Regression coverage for ResolveForegroundApp attaching a freshly-read title to
+    /// ForegroundApp.Unknown on the cache-miss path -- a real title stored against a process
+    /// that could not be identified. The fix withholds the title whenever resolution lands on
+    /// Unknown, cached or not.
+    ///
+    /// This cannot force that path: GetForegroundWindow, GetWindowThreadProcessId and
+    /// Process.GetProcessById are real Win32/CLR calls with no seam to inject a failure, and
+    /// this test host has an interactive desktop with a real foreground window (verified by
+    /// hand while writing this test), so Current resolves to an actual process here, not
+    /// Unknown. The assertion is therefore an implication, not a forced branch: it only bites
+    /// in an environment where resolution genuinely fails (a disconnected session, a service
+    /// account, GetForegroundWindow returning null) -- which is exactly the environment the
+    /// bug was reachable in. It is a real regression guard there and a no-op here, never a
+    /// false pass.
+    /// </summary>
+    [Fact]
+    public void Current_NeverAttachesATitleToAnUnresolvedApp()
+    {
+        using var tracker = new ForegroundTracker();
+        ForegroundApp current = tracker.Current;
+
+        if (current == ForegroundApp.Unknown)
+        {
+            Assert.Null(current.WindowTitle);
+        }
     }
 
     [Fact]
