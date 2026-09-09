@@ -64,10 +64,11 @@ Each gets its own spec → plan → implementation → commit cycle.
 | 1 | **Foundation** | Schema v2, settings store + settings UI, dark mode + theme tokenization, test project | — |
 | 2 | **Titles & detail** | Window-title capture (opt-in), ignore/privacy rules, browser domain extraction, app-detail drawer, title search | 1 |
 | 3 | **Taxonomy** | App groups (merge/unmerge), categories, super-categories, editor UI, category rollups | 1, 2 |
-| 4 | **Reporting** | Date-range picker, pie / ranked-list / insight tiles, xlsx + CSV export, empty & error states | 3 |
+| 4 | **Reporting** | Date-range picker, pie / ranked-list / insight tiles, xlsx + CSV export, empty & error states, **work hours** | 3 |
 | 5 | **i18n** | 6 locales, runtime locale switching | 1 |
 | 6 | **Screen memory** | Capture service, L1 stillness gate, frame store, sessions, `Windows.Media.Ocr` text layer, FTS5 search, retention | 1, 2 |
 | 7 | **Sync** | Device identity, outbox drain, Google Drive OAuth + AES-GCM, push/pull engine, multi-device UI | 1, 3 |
+| 8 | **Updates, About & data management** | Update check (opt-in, off by default), About panel, purge data, storage-usage display | 1 |
 
 ### Ordering notes
 
@@ -79,3 +80,35 @@ Each gets its own spec → plan → implementation → commit cycle.
   (dHash and friends) is disproven, because grid-mean/gradient summaries go structurally
   blind to same-density text replacement at any threshold. dHash is retained there only as
   a storage fingerprint, never as the gate.
+
+## Audit — 2026-09-09
+
+The original decomposition was built from Hindsight's README and file tree. A later pass
+through its five Settings tabs (General, Appearance, Privacy, Data, About) found four
+features the roadmap had missed entirely. Everything else mapped to an existing
+sub-project: Privacy → #2, Export → #4, Remove device → #7, Appearance/capture/idle → #1,
+OCR and screenshots → #6.
+
+| Found | Hindsight has | Placed in |
+|---|---|---|
+| Update checking | Check now, auto-check toggle, interval (daily/weekly/monthly/on startup), version display, install flow | **#8** |
+| Data management | Purge database, purge screenshots, storage-usage display, data path | **#8** |
+| About panel | Version, author, license, repo and feedback links | **#8** |
+| Work hours | Define working hours; shades period charts and the status footer | **#4** |
+
+Two things were checked and deliberately excluded rather than missed:
+
+- **`BackfillBanner`** is OCR-engine machinery — model download progress, digest runs,
+  resident-mode confirmation. It belongs to #6 and is largely moot there, since this port
+  uses `Windows.Media.Ocr` rather than a downloaded ONNX model.
+- **`tauri-plugin-notification`** is registered in `lib.rs` but has no Rust caller; the
+  usage appears to be AI-summary completion, which is permanently out of scope.
+
+### Update checking (#8) — scope decision
+
+**Opt-in, off by default.** A default install contacts nothing, matching how every other
+capability in this port ships and preserving the README's "No accounts, no cloud" promise
+for anyone who does not turn it on. When enabled it checks GitHub Releases for a newer tag
+and links to the download; the README must state exactly what is sent and when. Daylane has
+no updater today and .NET offers no equivalent to `tauri-plugin-updater`, so this is a
+build rather than a port.
