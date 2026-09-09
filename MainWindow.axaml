@@ -3,6 +3,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:Daylane.ViewModels"
+        xmlns:models="using:Daylane.Models"
         xmlns:controls="using:Daylane.Controls"
         xmlns:conv="using:Daylane.Converters"
         mc:Ignorable="d"
@@ -21,6 +22,7 @@
 
     <Window.Resources>
         <conv:StringEqualsConverter x:Key="StringEqualsConverter" />
+        <conv:IgnoreRuleDisplayConverter x:Key="IgnoreRuleDisplayConverter" />
     </Window.Resources>
 
     <Grid RowDefinitions="72,*">
@@ -936,6 +938,94 @@
                                           OffContent=""
                                           IsChecked="{Binding MinimizeToTray}" />
                         </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="panel" Padding="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="Privacy" FontSize="13" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Record window titles" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           Text="Stores each window's title alongside its app. Off by default." />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          IsChecked="{Binding RecordWindowTitles}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Record browser site" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           Text="Stores the site's host only, never the full address." />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          IsEnabled="{Binding CanRecordBrowserHost}"
+                                          IsChecked="{Binding RecordBrowserHost}" />
+                        </Grid>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Private keywords" FontSize="13" />
+                            <TextBlock Classes="muted" FontSize="11"
+                                       Text="A matching title or site means nothing is recorded for that window -- the time still counts." />
+                            <ItemsControl ItemsSource="{Binding PrivacyKeywords}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                                            <TextBlock Text="{Binding}" FontSize="13" VerticalAlignment="Center" />
+                                            <Button Grid.Column="1"
+                                                    Classes="secondary"
+                                                    Content="Remove"
+                                                    Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).RemovePrivacyKeywordCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox Text="{Binding NewPrivacyKeyword}" PlaceholderText="Keyword" />
+                                <Button Grid.Column="1"
+                                        Classes="secondary"
+                                        Content="Add"
+                                        Command="{Binding AddPrivacyKeywordCommand}" />
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Ignored windows" FontSize="13" />
+                            <TextBlock Classes="muted" FontSize="11"
+                                       Text="The time stops counting; remove an entry to start counting it again." />
+                            <ItemsControl ItemsSource="{Binding IgnoreRules}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:IgnoreRule">
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                                            <TextBlock Text="{Binding Converter={StaticResource IgnoreRuleDisplayConverter}}"
+                                                       FontSize="13"
+                                                       VerticalAlignment="Center" />
+                                            <Button Grid.Column="1"
+                                                    Classes="secondary"
+                                                    Content="Remove"
+                                                    Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).RemoveIgnoreRuleCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="8">
+                                <TextBox Text="{Binding NewIgnoreRuleProcess}" PlaceholderText="Process (e.g. chrome)" />
+                                <TextBox Grid.Column="1"
+                                         Text="{Binding NewIgnoreRuleKeyword}"
+                                         PlaceholderText="Title keyword (optional)" />
+                                <Button Grid.Column="2"
+                                        Classes="secondary"
+                                        Content="Add"
+                                        Command="{Binding AddIgnoreRuleCommand}" />
+                            </Grid>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>

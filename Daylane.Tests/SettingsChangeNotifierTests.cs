@@ -28,7 +28,10 @@ public class SettingsChangeNotifierTests
                 "RetentionDays",
                 "AutoStart",
                 "ShowWindowOnAutoStart",
-                "MinimizeToTray"
+                "MinimizeToTray",
+                "RecordWindowTitles",
+                "RecordBrowserHost",
+                "CanRecordBrowserHost"
             ],
             raised);
     }

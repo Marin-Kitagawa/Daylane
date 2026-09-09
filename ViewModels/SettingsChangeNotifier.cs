@@ -19,7 +19,10 @@ internal static class SettingsChangeNotifier
         nameof(MainWindowViewModel.RetentionDays),
         nameof(MainWindowViewModel.AutoStart),
         nameof(MainWindowViewModel.ShowWindowOnAutoStart),
-        nameof(MainWindowViewModel.MinimizeToTray)
+        nameof(MainWindowViewModel.MinimizeToTray),
+        nameof(MainWindowViewModel.RecordWindowTitles),
+        nameof(MainWindowViewModel.RecordBrowserHost),
+        nameof(MainWindowViewModel.CanRecordBrowserHost)
     ];
 
     internal static void Raise(Action<string> onPropertyChanged)

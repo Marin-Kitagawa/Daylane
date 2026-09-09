@@ -89,19 +89,33 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private Avalonia.Media.Imaging.Bitmap? _selectedDetailIcon;
     private bool _selectedDetailIsAway;
     private double _timelineZoom = 2;
+    private readonly ObservableCollection<string> _privacyKeywords = [];
+    private readonly ObservableCollection<IgnoreRule> _ignoreRules = [];
+    private string _newPrivacyKeyword = "";
+    private string _newIgnoreRuleProcess = "";
+    private string _newIgnoreRuleKeyword = "";
 
     public MainWindowViewModel(TrackingService tracking)
     {
         _tracking = tracking;
         _settings = tracking.Settings;
         _tracking.PropertyChanged += OnTrackingPropertyChanged;
+        SyncPrivacyLists();
 
         // Settings.Changed is raised outside the service's lock and can arrive on any thread
         // (the tray's startup checkbox writes from the UI thread, but nothing guarantees that
         // stays true), and it fires for writes made by anyone -- not just this view model's own
         // setters -- so the Settings tab and the tray checkbox cannot drift apart.
-        _settings.Changed += (_, _) => Dispatcher.UIThread.Post(
-            () => SettingsChangeNotifier.Raise(p => OnPropertyChanged(p)));
+        _settings.Changed += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            SettingsChangeNotifier.Raise(p => OnPropertyChanged(p));
+
+            // The privacy lists are ObservableCollections, not simple pass-through getters, so
+            // re-raising their property name would not refresh what an ItemsControl shows. Any
+            // settings write -- including one of this view model's own add/remove commands --
+            // resyncs them from the store, which is the source of truth.
+            SyncPrivacyLists();
+        });
         OpenDataFolderCommand = new RelayCommand(() => OpenDataFolder(_tracking.DatabasePath));
         SelectDayCommand = new RelayCommand(() => SelectedTab = AppTab.Day);
         SelectInsightsCommand = new RelayCommand(() => SelectedTab = AppTab.Insights);
@@ -115,6 +129,10 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         NextPeriodCommand = new RelayCommand(GoNextPeriod);
         SelectCurrentPeriodCommand = new RelayCommand(GoCurrentPeriod);
         ClearSelectionCommand = new RelayCommand(() => SelectedSegmentId = null);
+        AddPrivacyKeywordCommand = new RelayCommand(AddPrivacyKeyword);
+        RemovePrivacyKeywordCommand = new RelayCommand<string>(RemovePrivacyKeyword);
+        AddIgnoreRuleCommand = new RelayCommand(AddIgnoreRule);
+        RemoveIgnoreRuleCommand = new RelayCommand<IgnoreRule>(RemoveIgnoreRule);
         RefreshDay();
         RefreshInsights();
     }
@@ -512,6 +530,97 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool RecordWindowTitles
+    {
+        get => _settings.Current.RecordWindowTitles;
+        set
+        {
+            if (_settings.Current.RecordWindowTitles == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { RecordWindowTitles = value });
+            OnPropertyChanged();
+
+            // Normalize clears RecordBrowserHost when titles go off, even though neither was
+            // set directly here -- the host toggle and its enabled state must catch up.
+            OnPropertyChanged(nameof(RecordBrowserHost));
+            OnPropertyChanged(nameof(CanRecordBrowserHost));
+        }
+    }
+
+    public bool RecordBrowserHost
+    {
+        get => _settings.Current.RecordBrowserHost;
+        set
+        {
+            if (_settings.Current.RecordBrowserHost == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { RecordBrowserHost = value });
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>Bound to the host toggle's IsEnabled. Not unit-tested: MainWindowViewModel
+    /// cannot be constructed in a unit test because its TrackingService opens a real database
+    /// next to the executable. The invariant it mirrors -- a host cannot survive without a
+    /// title -- is pinned instead where it actually lives, in DaylaneSettings.Normalize, by
+    /// PrivacySettingsViewModelTests.</summary>
+    public bool CanRecordBrowserHost => _settings.Current.RecordWindowTitles;
+
+    public ObservableCollection<string> PrivacyKeywords => _privacyKeywords;
+
+    public ObservableCollection<IgnoreRule> IgnoreRules => _ignoreRules;
+
+    public string NewPrivacyKeyword
+    {
+        get => _newPrivacyKeyword;
+        set
+        {
+            if (_newPrivacyKeyword == value)
+            {
+                return;
+            }
+
+            _newPrivacyKeyword = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string NewIgnoreRuleProcess
+    {
+        get => _newIgnoreRuleProcess;
+        set
+        {
+            if (_newIgnoreRuleProcess == value)
+            {
+                return;
+            }
+
+            _newIgnoreRuleProcess = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string NewIgnoreRuleKeyword
+    {
+        get => _newIgnoreRuleKeyword;
+        set
+        {
+            if (_newIgnoreRuleKeyword == value)
+            {
+                return;
+            }
+
+            _newIgnoreRuleKeyword = value;
+            OnPropertyChanged();
+        }
+    }
+
     public ICommand OpenDataFolderCommand { get; }
 
     public ICommand SelectDayCommand { get; }
@@ -537,6 +646,69 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand SelectCurrentPeriodCommand { get; }
 
     public ICommand ClearSelectionCommand { get; }
+
+    public ICommand AddPrivacyKeywordCommand { get; }
+
+    public ICommand RemovePrivacyKeywordCommand { get; }
+
+    public ICommand AddIgnoreRuleCommand { get; }
+
+    public ICommand RemoveIgnoreRuleCommand { get; }
+
+    private void AddPrivacyKeyword()
+    {
+        string keyword = NewPrivacyKeyword.Trim();
+        if (keyword.Length == 0)
+        {
+            return;
+        }
+
+        _privacyKeywords.Add(keyword);
+        _settings.Update(s => s with { PrivacyKeywords = _privacyKeywords.ToList() });
+        NewPrivacyKeyword = "";
+    }
+
+    private void RemovePrivacyKeyword(string keyword)
+    {
+        _privacyKeywords.Remove(keyword);
+        _settings.Update(s => s with { PrivacyKeywords = _privacyKeywords.ToList() });
+    }
+
+    private void AddIgnoreRule()
+    {
+        string process = NewIgnoreRuleProcess.Trim();
+        if (process.Length == 0)
+        {
+            return;
+        }
+
+        string keyword = NewIgnoreRuleKeyword.Trim();
+        _ignoreRules.Add(new IgnoreRule(process, keyword.Length == 0 ? null : keyword));
+        _settings.Update(s => s with { IgnoreRules = _ignoreRules.ToList() });
+        NewIgnoreRuleProcess = "";
+        NewIgnoreRuleKeyword = "";
+    }
+
+    private void RemoveIgnoreRule(IgnoreRule rule)
+    {
+        _ignoreRules.Remove(rule);
+        _settings.Update(s => s with { IgnoreRules = _ignoreRules.ToList() });
+    }
+
+    private void SyncPrivacyLists()
+    {
+        _privacyKeywords.Clear();
+        foreach (string keyword in _settings.Current.PrivacyKeywords ?? Array.Empty<string>())
+        {
+            _privacyKeywords.Add(keyword);
+        }
+
+        _ignoreRules.Clear();
+        foreach (IgnoreRule rule in _settings.Current.IgnoreRules ?? Array.Empty<IgnoreRule>())
+        {
+            _ignoreRules.Add(rule);
+        }
+    }
 
     private void OnTrackingPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -1210,6 +1382,21 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         public bool CanExecute(object? parameter) => true;
 
         public void Execute(object? parameter) => execute();
+    }
+
+    private sealed class RelayCommand<T>(Action<T> execute) : ICommand
+    {
+        public event EventHandler? CanExecuteChanged { add { } remove { } }
+
+        public bool CanExecute(object? parameter) => true;
+
+        public void Execute(object? parameter)
+        {
+            if (parameter is T typed)
+            {
+                execute(typed);
+            }
+        }
     }
 }
 

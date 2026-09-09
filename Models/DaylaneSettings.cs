@@ -75,7 +75,11 @@ internal sealed record DaylaneSettings(
             IdleThresholdMinutes, IdleMonitor.MinThresholdMinutes, IdleMonitor.MaxThresholdMinutes),
         RetentionDays = Math.Max(0, RetentionDays),
         PrivacyKeywords = PrivacyKeywords ?? Array.Empty<string>(),
-        IgnoreRules = IgnoreRules ?? Array.Empty<IgnoreRule>()
+        IgnoreRules = IgnoreRules ?? Array.Empty<IgnoreRule>(),
+
+        // A host cannot be captured without a title — they come from the same sample. Leaving
+        // this true while titles are off would be a switch that reads as on and does nothing.
+        RecordBrowserHost = RecordWindowTitles && RecordBrowserHost,
     };
 }
 
