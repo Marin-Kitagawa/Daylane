@@ -39,7 +39,27 @@ internal sealed record DaylaneSettings(
     /// rather than "is the threshold still the default", so a user who deliberately chose the
     /// default value is not silently overwritten by a stale config.ini.</summary>
     [property: JsonPropertyName("legacyConfigImported")]
-    bool LegacyConfigImported = false)
+    bool LegacyConfigImported = false,
+
+    /// <summary>Master switch for this sub-project. Off by default: an upgraded install that
+    /// changes nothing records exactly what it recorded before.</summary>
+    [property: JsonPropertyName("recordWindowTitles")]
+    bool RecordWindowTitles = false,
+
+    /// <summary>Record the browser site (host only, never the path or query). Meaningless
+    /// without RecordWindowTitles, and gated behind it in the UI.</summary>
+    [property: JsonPropertyName("recordBrowserHost")]
+    bool RecordBrowserHost = false,
+
+    /// <summary>Title/URL substrings that suppress detail capture. A hit means no title and
+    /// no host are stored for that segment — the row still exists and still counts.</summary>
+    [property: JsonPropertyName("privacyKeywords")]
+    IReadOnlyList<string>? PrivacyKeywords = null,
+
+    /// <summary>Windows excluded from counted time. Orthogonal to PrivacyKeywords: a hit here
+    /// stores the detail but sets Excluded = 1.</summary>
+    [property: JsonPropertyName("ignoreRules")]
+    IReadOnlyList<IgnoreRule>? IgnoreRules = null)
 {
     public const string AppearanceSystem = "system";
     public const string AppearanceLight = "light";
@@ -53,9 +73,13 @@ internal sealed record DaylaneSettings(
             : AppearanceSystem,
         IdleThresholdMinutes = Math.Clamp(
             IdleThresholdMinutes, IdleMonitor.MinThresholdMinutes, IdleMonitor.MaxThresholdMinutes),
-        RetentionDays = Math.Max(0, RetentionDays)
+        RetentionDays = Math.Max(0, RetentionDays),
+        PrivacyKeywords = PrivacyKeywords ?? Array.Empty<string>(),
+        IgnoreRules = IgnoreRules ?? Array.Empty<IgnoreRule>()
     };
 }
 
 [JsonSerializable(typeof(DaylaneSettings))]
+[JsonSerializable(typeof(IgnoreRule))]
+[JsonSerializable(typeof(IReadOnlyList<IgnoreRule>))]
 internal sealed partial class SettingsJsonContext : JsonSerializerContext;
