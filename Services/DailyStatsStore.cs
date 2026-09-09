@@ -473,6 +473,57 @@ internal sealed class DailyStatsStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Re-evaluates every activity row against the current rules. Rule edits are rare, so a
+    /// full-table pass is the right trade against carrying rule evaluation into every read.
+    /// One transaction: a failure must not leave half the table judged by the old rules.
+    /// </summary>
+    internal int RecomputeExcluded(IReadOnlyList<IgnoreRule> rules)
+    {
+        lock (_dbWriteLock)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            var rows = new List<(long Id, string ProcessName, string? Title, long Excluded)>();
+            using (var read = connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText = "SELECT Id, ProcessName, WindowTitle, Excluded FROM ActivitySegment;";
+                using var reader = read.ExecuteReader();
+                while (reader.Read())
+                {
+                    rows.Add((reader.GetInt64(0), reader.GetString(1),
+                        reader.IsDBNull(2) ? null : reader.GetString(2), reader.GetInt64(3)));
+                }
+            }
+
+            int changed = 0;
+            foreach (var row in rows)
+            {
+                long want = IgnoreRules.IsExcluded(row.ProcessName, row.Title, rules) ? 1 : 0;
+                if (want == row.Excluded)
+                {
+                    continue;
+                }
+
+                using var update = connection.CreateCommand();
+                update.Transaction = transaction;
+                update.CommandText =
+                    "UPDATE ActivitySegment SET Excluded = $excluded, UpdatedAt = $now WHERE Id = $id;";
+                update.Parameters.AddWithValue("$excluded", want);
+                update.Parameters.AddWithValue("$now", Timestamps.ToUtcText(DateTime.UtcNow));
+                update.Parameters.AddWithValue("$id", row.Id);
+                update.ExecuteNonQuery();
+                changed++;
+            }
+
+            transaction.Commit();
+            return changed;
+        }
+    }
+
     public void Enqueue(InputEvent inputEvent) => _buffer.Enqueue(inputEvent);
 
     public void Flush()

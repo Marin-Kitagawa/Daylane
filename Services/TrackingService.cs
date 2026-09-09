@@ -29,6 +29,7 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     private volatile bool _trackingEnabled;
     private bool _started;
     private bool _disposed;
+    private IReadOnlyList<IgnoreRule> _lastAppliedIgnoreRules = Array.Empty<IgnoreRule>();
 
     public TrackingService()
     {
@@ -37,6 +38,7 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         LegacyConfig.ImportOnce(Settings, LegacyConfig.DefaultPath);
         IdleMonitor.Bind(Settings);
         _trackingEnabled = Settings.Current.TrackingEnabled;
+        _lastAppliedIgnoreRules = Settings.Current.IgnoreRules ?? Array.Empty<IgnoreRule>();
         _store.CloseOrphanOpenSegments(DateTime.UtcNow);
 
         // Runs after CloseOrphanOpenSegments: a crash-orphaned open segment must be closed
@@ -294,7 +296,42 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     }
 
     private void OnSettingsChanged(object? sender, DaylaneSettings settings) =>
-        Dispatcher.UIThread.Post(() => SetTrackingEnabled(settings.TrackingEnabled));
+        Dispatcher.UIThread.Post(() =>
+        {
+            SetTrackingEnabled(settings.TrackingEnabled);
+            RecomputeExcludedIfRulesChanged(settings);
+        });
+
+    // Runs on the UI thread. The compare-and-swap on _lastAppliedIgnoreRules must happen here,
+    // not on the background thread, so that two rapid settings saves serialize on deciding
+    // whether to recompute rather than racing each other into two overlapping passes. Only the
+    // database work itself (RecomputeExcluded, a full-table pass) is pushed off the UI thread:
+    // on a database with a year of history that pass is slow enough to freeze the window if run
+    // here, which is the same defect a reviewer caught one task earlier for a different slow call.
+    private void RecomputeExcludedIfRulesChanged(DaylaneSettings settings)
+    {
+        IReadOnlyList<IgnoreRule> rules = settings.IgnoreRules ?? Array.Empty<IgnoreRule>();
+        if (rules.SequenceEqual(_lastAppliedIgnoreRules))
+        {
+            return;
+        }
+
+        _lastAppliedIgnoreRules = rules;
+
+        Task.Run(() =>
+        {
+            try
+            {
+                _store.RecomputeExcluded(rules);
+            }
+            catch (Exception ex)
+            {
+                // A failed recompute must not take down a settings save; the next rule edit
+                // (or app restart) gets another chance to bring the table in line.
+                Debug.WriteLine($"Excluded recompute failed: {ex.Message}");
+            }
+        });
+    }
 
     private void SetTrackingEnabled(bool enabled)
     {
