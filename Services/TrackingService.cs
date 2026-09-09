@@ -166,6 +166,30 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         return new RangeSnapshot(start, end, keys, clicks, appUsage, dailyActive);
     }
 
+    /// <summary>Thin passthrough to the store for the Day view's app-detail panel. Not
+    /// unit-tested here for the same reason GetDaySnapshot/GetRangeSnapshot aren't: it adds
+    /// nothing over DailyStatsStore.GetTitleUsage, which AppDetailQueryTests already covers.
+    /// No FlushOpenSegmentCounts call needed first (unlike GetDaySnapshot/GetRangeSnapshot):
+    /// that only reconciles KeyCount/MouseClickCount on the open segment's row, and
+    /// GetTitleUsage's Title/UrlHost/Duration/SessionCount come from columns that call never
+    /// touches -- the still-open segment's duration is already live because the store computes
+    /// it against the current time, not a stored EndUtc.</summary>
+    public IReadOnlyList<TitleUsageSummary> GetTitleUsage(
+        string exePath,
+        DateTime rangeStartLocal,
+        DateTime rangeEndExclusiveLocal) =>
+        _store.GetTitleUsage(exePath, rangeStartLocal, rangeEndExclusiveLocal);
+
+    /// <summary>Thin passthrough to the store backing the Day view's search box. Not
+    /// unit-tested here for the same reason: TitleSearchTests already covers
+    /// DailyStatsStore.SearchTitles itself.</summary>
+    public IReadOnlyList<ActivitySegment> SearchTitles(
+        string query,
+        DateTime rangeStartLocal,
+        DateTime rangeEndLocal,
+        int limit = 200) =>
+        _store.SearchTitles(query, rangeStartLocal, rangeEndLocal, limit);
+
     private void FlushOpenSegmentCounts()
     {
         lock (_segmentStateLock)

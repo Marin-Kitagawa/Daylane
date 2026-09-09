@@ -111,7 +111,86 @@
                                 IsVisible="{Binding !IsSelectedDayToday}"
                                 MinHeight="34"
                                 Padding="12,7" />
+                        <TextBox x:Name="SearchBox"
+                                 Classes="search-box"
+                                 Width="220"
+                                 MinHeight="34"
+                                 PlaceholderText="Search titles and hosts…"
+                                 Text="{Binding SearchQuery, Mode=TwoWay}" />
                     </StackPanel>
+
+                    <Popup PlacementTarget="{Binding #SearchBox}"
+                           Placement="BottomEdgeAlignedLeft"
+                           IsOpen="{Binding ShowSearchPopup}"
+                           IsLightDismissEnabled="False"
+                           Width="380">
+                        <Border Classes="panel" Padding="0" MaxHeight="360">
+                            <Grid RowDefinitions="36,*">
+                                <Border BorderBrush="{DynamicResource AppBorderBrush}"
+                                        BorderThickness="0,0,0,1"
+                                        Padding="14,0"
+                                        Background="{DynamicResource AppSurfaceAltBrush}">
+                                    <TextBlock Text="Search results"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center" />
+                                </Border>
+                                <ScrollViewer Grid.Row="1"
+                                              MaxHeight="320"
+                                              VerticalScrollBarVisibility="Auto"
+                                              IsVisible="{Binding HasSearchResults}">
+                                    <ListBox Classes="plain-list"
+                                             ItemsSource="{Binding SearchResults}"
+                                             SelectedItem="{Binding SelectedSearchItem, Mode=TwoWay}">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:TitleSearchItemViewModel">
+                                                <Panel>
+                                                    <Border Padding="14,4,14,2" IsVisible="{Binding IsHeader}">
+                                                        <TextBlock Text="{Binding AppDisplayName}"
+                                                                   Classes="muted"
+                                                                   FontSize="11"
+                                                                   FontWeight="SemiBold" />
+                                                    </Border>
+                                                    <Border Classes="app-row"
+                                                            Padding="14,7"
+                                                            BorderBrush="{DynamicResource AppBorderBrush}"
+                                                            BorderThickness="0,0,0,1"
+                                                            IsVisible="{Binding !IsHeader}">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                            <TextBlock Text="{Binding TimeText}"
+                                                                       Classes="muted"
+                                                                       FontSize="11"
+                                                                       VerticalAlignment="Center" />
+                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                                                <TextBlock Text="{Binding TitleText}"
+                                                                           Classes="search-hit-title"
+                                                                           Classes.excluded="{Binding IsExcluded}"
+                                                                           FontSize="12"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           VerticalAlignment="Center" />
+                                                                <TextBlock Text="Excluded"
+                                                                           Classes="muted"
+                                                                           FontSize="10"
+                                                                           IsVisible="{Binding IsExcluded}"
+                                                                           VerticalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
+                                                </Panel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </ScrollViewer>
+                                <StackPanel Grid.Row="1"
+                                            Spacing="4"
+                                            Margin="14"
+                                            IsVisible="{Binding ShowSearchEmptyState}">
+                                    <TextBlock Classes="empty-title" Text="No matches" />
+                                    <TextBlock Classes="empty-body" Text="No captured titles or hosts match that search for this day." />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </Popup>
 
                     <StackPanel Orientation="Horizontal"
                                 Spacing="6"
@@ -361,10 +440,80 @@
                                 </StackPanel>
                             </Grid>
                         </StackPanel>
+                        <StackPanel Spacing="10" IsVisible="{Binding HasSelectedApp}">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding SelectedAppDisplayName}"
+                                               FontSize="16"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Classes="muted"
+                                               FontSize="12"
+                                               IsVisible="{Binding HasSelectedAppTitles}"
+                                               Text="{Binding SelectedAppTotalText, StringFormat='Total {0}'}"
+                                               ToolTip.Tip="Excludes rows marked Excluded" />
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Classes="secondary"
+                                        Content="Clear"
+                                        Padding="10,4"
+                                        MinHeight="28"
+                                        FontSize="12"
+                                        Command="{Binding ClearSelectionCommand}" />
+                            </Grid>
+                            <ScrollViewer MaxHeight="150"
+                                          VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding HasSelectedAppTitles}">
+                                <ItemsControl ItemsSource="{Binding SelectedAppTitles}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:TitleUsageItemViewModel">
+                                            <Border Classes="title-usage-row"
+                                                    Classes.header="{Binding IsHeader}"
+                                                    Classes.nested="{Binding IsNested}"
+                                                    Classes.excluded="{Binding IsExcluded}">
+                                                <Grid ColumnDefinitions="*,60,40" ColumnSpacing="8">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding DisplayText}"
+                                                                   Classes="title-usage-text"
+                                                                   Classes.header="{Binding IsHeader}"
+                                                                   FontSize="12"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="Excluded"
+                                                                   Classes="muted"
+                                                                   FontSize="10"
+                                                                   IsVisible="{Binding IsExcluded}" />
+                                                    </StackPanel>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding DurationText}"
+                                                               Classes="muted"
+                                                               FontSize="11"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{Binding SessionCountText}"
+                                                               Classes="muted"
+                                                               FontSize="11"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center"
+                                                               IsVisible="{Binding !IsHeader}" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <StackPanel Spacing="4" IsVisible="{Binding ShowNoTitlesForSelectedApp}">
+                                <TextBlock Classes="empty-title" Text="No titles captured" HorizontalAlignment="Left" />
+                                <TextBlock Classes="empty-body"
+                                           HorizontalAlignment="Left"
+                                           TextAlignment="Left"
+                                           Text="Window titles may be turned off for this app. Turn on title capture in Settings to see a breakdown here." />
+                            </StackPanel>
+                        </StackPanel>
                         <StackPanel Spacing="6"
                                     VerticalAlignment="Center"
                                     HorizontalAlignment="Center"
-                                    IsVisible="{Binding !HasSelectedSegment}">
+                                    IsVisible="{Binding ShowSelectionEmptyState}">
                             <TextBlock Classes="empty-title" Text="No selection" />
                             <TextBlock Classes="empty-body" Text="Click a timeline block or activity row to inspect it." />
                         </StackPanel>
@@ -499,8 +648,12 @@
                         </Border>
                         <Panel Grid.Row="1">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" IsVisible="{Binding HasAppUsage}">
-                                <ItemsControl ItemsSource="{Binding AppUsage}">
-                                    <ItemsControl.ItemTemplate>
+                                <ListBox Classes="plain-list"
+                                         ItemsSource="{Binding AppUsage}"
+                                         SelectedItem="{Binding SelectedAppUsageItem, Mode=TwoWay}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemTemplate>
                                         <DataTemplate x:DataType="vm:AppUsageItemViewModel">
                                             <Border Classes="app-row"
                                                     Padding="16,8"
@@ -571,8 +724,8 @@
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
                             </ScrollViewer>
                             <StackPanel Spacing="6"
                                         VerticalAlignment="Center"

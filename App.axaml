@@ -373,5 +373,42 @@
         <Style Selector="ListBox.plain-list ListBoxItem:selected:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AppAccentStrongBrush}" />
         </Style>
+
+        <Style Selector="TextBox.search-box">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <!-- Task 13's app-detail title breakdown: a host header row for a browser app, its
+             titles nested underneath, or a flat title row for anything else. -->
+        <Style Selector="Border.title-usage-row">
+            <Setter Property="Padding" Value="0,3" />
+        </Style>
+
+        <Style Selector="Border.title-usage-row.nested">
+            <Setter Property="Margin" Value="14,0,0,0" />
+        </Style>
+
+        <Style Selector="Border.title-usage-row.header">
+            <Setter Property="Margin" Value="0,6,0,0" />
+        </Style>
+
+        <Style Selector="Border.title-usage-row.excluded">
+            <Setter Property="Opacity" Value="0.6" />
+        </Style>
+
+        <Style Selector="TextBlock.title-usage-text.header">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource AppMutedBrush}" />
+        </Style>
+
+        <Style Selector="TextBlock.search-hit-title.excluded">
+            <Setter Property="Opacity" Value="0.6" />
+        </Style>
     </Application.Styles>
 </Application>

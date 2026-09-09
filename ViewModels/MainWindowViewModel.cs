@@ -95,6 +95,13 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _newPrivacyKeyword = "";
     private string _newIgnoreRuleProcess = "";
     private string _newIgnoreRuleKeyword = "";
+    private readonly ObservableCollection<TitleUsageItemViewModel> _selectedAppTitles = [];
+    private AppUsageItemViewModel? _selectedAppUsageItem;
+    private string _selectedAppDisplayName = "";
+    private string _selectedAppTotalText = "";
+    private string _searchQuery = "";
+    private readonly ObservableCollection<TitleSearchItemViewModel> _searchResults = [];
+    private TitleSearchItemViewModel? _selectedSearchItem;
 
     public MainWindowViewModel(TrackingService tracking)
     {
@@ -129,7 +136,11 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         PreviousPeriodCommand = new RelayCommand(GoPreviousPeriod);
         NextPeriodCommand = new RelayCommand(GoNextPeriod);
         SelectCurrentPeriodCommand = new RelayCommand(GoCurrentPeriod);
-        ClearSelectionCommand = new RelayCommand(() => SelectedSegmentId = null);
+        ClearSelectionCommand = new RelayCommand(() =>
+        {
+            SelectedSegmentId = null;
+            SelectedAppUsageItem = null;
+        });
         AddPrivacyKeywordCommand = new RelayCommand(AddPrivacyKeyword);
         RemovePrivacyKeywordCommand = new RelayCommand<string>(RemovePrivacyKeyword);
         AddIgnoreRuleCommand = new RelayCommand(AddIgnoreRule);
@@ -164,6 +175,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
             _selectedDay = day;
             SelectedSegmentId = null;
+            SelectedAppUsageItem = null;
             TimelineZoom = day == DateTime.Today ? 2 : 1;
             OnPropertyChanged();
             OnPropertyChanged(nameof(DayLabel));
@@ -260,8 +272,18 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             _selectedSegmentId = value;
+
+            // A segment and an app share the one "Selection" panel; picking one from the
+            // timeline or the Activity list must drop the other so the panel doesn't have to
+            // decide which detail wins.
+            if (value is not null && _selectedAppUsageItem is not null)
+            {
+                SelectedAppUsageItem = null;
+            }
+
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedSegmentItem));
+            OnPropertyChanged(nameof(ShowSelectionEmptyState));
             RefreshSelectedDetail();
         }
     }
@@ -286,6 +308,99 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             return null;
         }
         set => SelectedSegmentId = value?.Id;
+    }
+
+    /// <summary>The row picked from the Apps list, driving the title breakdown below (via
+    /// RefreshSelectedAppTitles) instead of the segment detail. Not the same selection concept
+    /// as SelectedSegmentId -- an app row has no segment Id of its own -- so the two are kept
+    /// as separate properties that clear one another rather than one overloaded field.</summary>
+    public AppUsageItemViewModel? SelectedAppUsageItem
+    {
+        get => _selectedAppUsageItem;
+        set
+        {
+            if (ReferenceEquals(_selectedAppUsageItem, value))
+            {
+                return;
+            }
+
+            _selectedAppUsageItem = value;
+            if (value is not null && _selectedSegmentId is not null)
+            {
+                SelectedSegmentId = null;
+            }
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSelectedApp));
+            OnPropertyChanged(nameof(ShowSelectionEmptyState));
+            RefreshSelectedAppTitles();
+        }
+    }
+
+    public bool HasSelectedApp => _selectedAppUsageItem is not null;
+
+    /// <summary>The "No selection" empty state is only for when NEITHER a segment nor an app
+    /// is picked -- once Task 13 gave the app row its own detail view, HasSelectedSegment alone
+    /// stopped being the right guard for it.</summary>
+    public bool ShowSelectionEmptyState => !HasSelectedSegment && !HasSelectedApp;
+
+    public ObservableCollection<TitleUsageItemViewModel> SelectedAppTitles => _selectedAppTitles;
+
+    public bool HasSelectedAppTitles => _selectedAppTitles.Count > 0;
+
+    public string SelectedAppDisplayName => _selectedAppDisplayName;
+
+    public string SelectedAppTotalText => _selectedAppTotalText;
+
+    /// <summary>An app is selected, GetTitleUsage came back empty, so the empty state renders
+    /// -- distinct from HasSelectedApp && !HasSelectedAppTitles only to keep the XAML binding a
+    /// single flag rather than a two-property AND.</summary>
+    public bool ShowNoTitlesForSelectedApp => HasSelectedApp && !HasSelectedAppTitles;
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (_searchQuery == value)
+            {
+                return;
+            }
+
+            _searchQuery = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsSearchActive));
+            OnPropertyChanged(nameof(ShowSearchPopup));
+            RefreshSearch();
+        }
+    }
+
+    public bool IsSearchActive => !string.IsNullOrWhiteSpace(_searchQuery);
+
+    /// <summary>Gates the results Popup on IsDaySelected too, not just IsSearchActive: the
+    /// search box only exists in the Day header, but a query typed there survives switching to
+    /// Insights or Settings, and the Popup's PlacementTarget (the search box) would be hidden
+    /// with its whole header on those tabs -- it must not pop open floating over the wrong tab.</summary>
+    public bool ShowSearchPopup => IsDaySelected && IsSearchActive;
+
+    public ObservableCollection<TitleSearchItemViewModel> SearchResults => _searchResults;
+
+    public bool HasSearchResults => _searchResults.Count > 0;
+
+    public bool ShowSearchEmptyState => IsSearchActive && !HasSearchResults;
+
+    public TitleSearchItemViewModel? SelectedSearchItem
+    {
+        get => _selectedSearchItem;
+        set
+        {
+            _selectedSearchItem = value;
+            OnPropertyChanged();
+            if (value is { SegmentId: long id })
+            {
+                SelectedSegmentId = id;
+            }
+        }
     }
 
     public bool HasAppUsage => _appUsage.Count > 0;
@@ -359,6 +474,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsDaySelected));
             OnPropertyChanged(nameof(IsInsightsSelected));
             OnPropertyChanged(nameof(IsSettingsSelected));
+            OnPropertyChanged(nameof(ShowSearchPopup));
             if (value == AppTab.Insights)
             {
                 RefreshInsights();
@@ -896,6 +1012,20 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             _appUsage.Add(AppUsageItemViewModel.From(item, totalDuration));
         }
 
+        // _appUsage is rebuilt from scratch above, so a previously selected row's object
+        // reference no longer appears in the list even when that app still has usage today --
+        // re-anchor the selection to its refreshed row (by ExePath, the same key
+        // AggregateAppUsage groups by) rather than silently keeping a dangling reference the
+        // ListBox no longer shows as selected.
+        if (_selectedAppUsageItem is { } previouslySelected)
+        {
+            _selectedAppUsageItem = _appUsage.FirstOrDefault(a =>
+                string.Equals(a.ExePath, previouslySelected.ExePath, StringComparison.OrdinalIgnoreCase));
+            OnPropertyChanged(nameof(SelectedAppUsageItem));
+            OnPropertyChanged(nameof(HasSelectedApp));
+            OnPropertyChanged(nameof(ShowSelectionEmptyState));
+        }
+
         _openApps.Clear();
         foreach (var item in snapshot.OpenApps)
         {
@@ -928,6 +1058,8 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasSegments));
         OnPropertyChanged(nameof(HasDayActivity));
         RefreshSelectedDetail();
+        RefreshSelectedAppTitles();
+        RefreshSearch();
     }
 
     private void RefreshInsights()
@@ -1242,6 +1374,81 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SelectedDetailIcon));
         OnPropertyChanged(nameof(HasSelectedDetailIcon));
         OnPropertyChanged(nameof(SelectedDetailIsAway));
+        OnPropertyChanged(nameof(ShowSelectionEmptyState));
+    }
+
+    /// <summary>Rebuilds SelectedAppTitles from GetTitleUsage for the currently selected app
+    /// row, over the shape TitleUsagePresenter.Build computes -- the total that excludes
+    /// excluded rows, and the browser-vs-flat grouping. IsIdle apps ("Away") have no exe path
+    /// and no titles of their own, so they clear the panel rather than querying for one.</summary>
+    private void RefreshSelectedAppTitles()
+    {
+        AppUsageItemViewModel? app = _selectedAppUsageItem;
+        if (app is null || app.IsIdle || string.IsNullOrWhiteSpace(app.ExePath))
+        {
+            _selectedAppTitles.Clear();
+            _selectedAppDisplayName = "";
+            _selectedAppTotalText = "";
+            NotifySelectedAppTitlesChanged();
+            return;
+        }
+
+        DateTime startLocal = SelectedDay.Date;
+        DateTime endExclusiveLocal = startLocal.AddDays(1);
+        var rows = _tracking.GetTitleUsage(app.ExePath, startLocal, endExclusiveLocal);
+        bool isBrowser = BrowserHost.IsBrowser(app.ProcessName);
+        TitleUsagePanel panel = TitleUsagePresenter.Build(rows, isBrowser);
+
+        _selectedAppTitles.Clear();
+        foreach (var item in panel.Items)
+        {
+            _selectedAppTitles.Add(item);
+        }
+
+        _selectedAppDisplayName = app.DisplayName;
+        _selectedAppTotalText = FormatDuration(panel.TotalDuration);
+        NotifySelectedAppTitlesChanged();
+    }
+
+    private void NotifySelectedAppTitlesChanged()
+    {
+        OnPropertyChanged(nameof(HasSelectedAppTitles));
+        OnPropertyChanged(nameof(SelectedAppDisplayName));
+        OnPropertyChanged(nameof(SelectedAppTotalText));
+        OnPropertyChanged(nameof(ShowNoTitlesForSelectedApp));
+    }
+
+    /// <summary>Rebuilds SearchResults from SearchTitles for SearchQuery over the selected day
+    /// (the Day view's "current period"), grouped by app -- pure presentation over a query
+    /// Task 11 already covers, so unlike RefreshSelectedAppTitles this has no pulled-out helper
+    /// or dedicated tests.</summary>
+    private void RefreshSearch()
+    {
+        _searchResults.Clear();
+
+        string query = _searchQuery.Trim();
+        if (query.Length > 0)
+        {
+            DateTime startLocal = SelectedDay.Date;
+            DateTime endExclusiveLocal = startLocal.AddDays(1);
+            var hits = _tracking.SearchTitles(query, startLocal, endExclusiveLocal);
+
+            var groups = hits
+                .GroupBy(s => string.IsNullOrWhiteSpace(s.DisplayName) ? s.ProcessName : s.DisplayName)
+                .OrderByDescending(g => g.Max(s => s.StartUtc));
+
+            foreach (var group in groups)
+            {
+                _searchResults.Add(TitleSearchItemViewModel.Header(group.Key));
+                foreach (var hit in group.OrderByDescending(s => s.StartUtc))
+                {
+                    _searchResults.Add(TitleSearchItemViewModel.Row(hit));
+                }
+            }
+        }
+
+        OnPropertyChanged(nameof(HasSearchResults));
+        OnPropertyChanged(nameof(ShowSearchEmptyState));
     }
 
     private bool TryPatchSegmentItems(IReadOnlyList<ActivitySegment> ordered)
@@ -1528,6 +1735,12 @@ internal sealed class AppUsageItemViewModel
     public bool HasIcon => Icon is not null;
     public bool IsIdle { get; init; }
 
+    // Needed to drive the title-breakdown panel once this row is selected: ExePath keys
+    // GetTitleUsage (matching AggregateAppUsage's own grouping key) and ProcessName decides,
+    // via BrowserHost.IsBrowser, whether that breakdown groups by host or stays flat.
+    public required string ExePath { get; init; }
+    public required string ProcessName { get; init; }
+
     public static AppUsageItemViewModel From(AppUsageSummary summary, double totalDurationSeconds)
     {
         double percent = totalDurationSeconds <= 0
@@ -1551,7 +1764,9 @@ internal sealed class AppUsageItemViewModel
             Icon = summary.IsIdle ? null : AppIconLoader.Get(summary.ExePath),
             Color = summary.IsIdle
                 ? new SolidColorBrush(IdlePalette.Fill)
-                : AppColor.For(summary.ExePath, summary.ProcessName)
+                : AppColor.For(summary.ExePath, summary.ProcessName),
+            ExePath = summary.ExePath,
+            ProcessName = summary.ProcessName
         };
     }
 
@@ -1578,4 +1793,40 @@ internal sealed class OpenAppItemViewModel
 
     private static string FormatClock(TimeSpan duration) =>
         $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}";
+}
+
+/// <summary>One row of the search-results list: either an app header (<see cref="IsHeader"/>,
+/// no segment behind it) or a hit that can be selected to jump the "Selection" panel to that
+/// segment. Presentation over SearchTitles, which Task 11's TitleSearchTests already covers --
+/// unlike TitleUsagePresenter this has no pulled-out helper of its own.</summary>
+internal sealed class TitleSearchItemViewModel
+{
+    public long? SegmentId { get; init; }
+    public required string AppDisplayName { get; init; }
+    public string TitleText { get; init; } = "";
+    public string TimeText { get; init; } = "";
+    public bool IsExcluded { get; init; }
+    public bool IsHeader { get; init; }
+
+    internal static TitleSearchItemViewModel Header(string appDisplayName) => new()
+    {
+        AppDisplayName = appDisplayName,
+        IsHeader = true
+    };
+
+    internal static TitleSearchItemViewModel Row(ActivitySegment hit)
+    {
+        string title = string.IsNullOrWhiteSpace(hit.UrlHost)
+            ? (hit.WindowTitle ?? "")
+            : (string.IsNullOrWhiteSpace(hit.WindowTitle) ? hit.UrlHost : $"{hit.UrlHost} — {hit.WindowTitle}");
+
+        return new TitleSearchItemViewModel
+        {
+            SegmentId = hit.Id,
+            AppDisplayName = string.IsNullOrWhiteSpace(hit.DisplayName) ? hit.ProcessName : hit.DisplayName,
+            TitleText = title,
+            TimeText = hit.StartUtc.ToLocalTime().ToString("HH:mm"),
+            IsExcluded = hit.Excluded
+        };
+    }
 }
