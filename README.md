@@ -14,19 +14,26 @@ Windows 10/11 x64. Binaries: [Releases](../../releases). Unzip and run `Daylane.
 - Day timeline: foreground apps, Active/Away, input intensity
 - Week and month insights. Month can take several seconds to open, longer on slower machines.
 - Open-app time (visible windows, not only focus)
+- App detail: select an app to see its time broken down by window title, or by site for browsers
+- Search: find captured window titles and browser hosts for the day
 - Light and dark theme, or follow Windows
 - Settings in-app; changes apply immediately
 - Tray icon; optional Start with Windows
 
 ## Data and privacy
 
-`daylane.db` is created beside the executable (portable). Stored: process name, exe path, time ranges, key/click **counts**. Not stored: keystrokes, window titles, screenshots, or mouse coordinates.
+`daylane.db` is created beside the executable (portable). Always stored: process name, exe path, time ranges, key/click **counts**. Never stored: keystrokes, screenshots, or mouse coordinates.
+
+Window titles and browser sites are both **off by default** — an upgraded install records nothing new until you turn them on yourself, in Settings → Privacy. Turning on **Record window titles** stores each window's title alongside its app. Turning on **Record browser site** (which requires window titles to be on) stores only the site's **host**, never the full address — no path, query string, or fragment.
+
+**Private keywords** suppress capture for any window whose title or site matches one: nothing is recorded for that window, but the time still counts toward your totals. **Ignored windows** work the other way around: the title/site is still recorded, but the time stops counting toward totals — remove the rule and that time counts again.
 
 Menu → Open data folder.
 
 On first launch after upgrading, `daylane.db` is migrated and a backup of
-the previous version is written beside it as `daylane.db.bak.v1`. Delete
-it once you are satisfied the upgrade went cleanly.
+the previous version is written beside it as `daylane.db.bak.vN`, where `N`
+is the schema version you upgraded from (for example `daylane.db.bak.v2`).
+Delete it once you are satisfied the upgrade went cleanly.
 
 ## Settings
 
@@ -37,6 +44,7 @@ Open the **Settings** tab. Changes apply immediately — no restart.
 - **Idle threshold (minutes)** — minutes without keyboard or mouse input before a span is marked Away (1–240)
 - **Keep history for (days)** — delete records older than N days; defaults to `0`, which keeps everything until you opt in
 - **Startup** — Start with Windows, Show window on startup, Minimize to tray
+- **Privacy** — Record window titles, Record browser site (needs window titles on), Private keywords, Ignored windows — see [Data and privacy](#data-and-privacy)
 
 Settings live in `daylane.db`. The old `config.ini` is read once on
 first launch after upgrading, to carry your `threshold_minutes` across;
