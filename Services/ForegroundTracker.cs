@@ -150,17 +150,21 @@ internal sealed class ForegroundTracker : IDisposable
 
         if (processId == _cachedPid && _cachedByPid is { } cached)
         {
-            // Matches the fresh-resolve branch below: a process that failed to resolve gets
-            // no title either, cached or not. Otherwise a row whose process could not be
-            // identified would still carry a real, persisted title.
-            return cached == ForegroundApp.Unknown ? cached : cached with { WindowTitle = title };
+            return WithTitle(cached, title);
         }
 
         ForegroundApp resolved = ResolveProcess(processId);
         _cachedPid = processId;
         _cachedByPid = resolved;
-        return resolved == ForegroundApp.Unknown ? resolved : resolved with { WindowTitle = title };
+        return WithTitle(resolved, title);
     }
+
+    /// <summary>Attaches a freshly-read window title to a resolved app, except when the app
+    /// could not be resolved at all. Withholding the title there matters because a stored row
+    /// whose process is Unknown would otherwise still carry a real, persisted title -- the
+    /// process could not be identified, but the window text was read anyway.</summary>
+    internal static ForegroundApp WithTitle(ForegroundApp app, string? title) =>
+        app == ForegroundApp.Unknown ? app : app with { WindowTitle = title };
 
     private static ForegroundApp ResolveProcess(uint processId)
     {

@@ -62,30 +62,30 @@ public class TrackerPauseResumeTests
 
     /// <summary>
     /// Regression coverage for ResolveForegroundApp attaching a freshly-read title to
-    /// ForegroundApp.Unknown on the cache-miss path -- a real title stored against a process
-    /// that could not be identified. The fix withholds the title whenever resolution lands on
-    /// Unknown, cached or not.
-    ///
-    /// This cannot force that path: GetForegroundWindow, GetWindowThreadProcessId and
-    /// Process.GetProcessById are real Win32/CLR calls with no seam to inject a failure, and
-    /// this test host has an interactive desktop with a real foreground window (verified by
-    /// hand while writing this test), so Current resolves to an actual process here, not
-    /// Unknown. The assertion is therefore an implication, not a forced branch: it only bites
-    /// in an environment where resolution genuinely fails (a disconnected session, a service
-    /// account, GetForegroundWindow returning null) -- which is exactly the environment the
-    /// bug was reachable in. It is a real regression guard there and a no-op here, never a
-    /// false pass.
+    /// ForegroundApp.Unknown -- a real title stored against a process that could not be
+    /// identified. The decision was extracted to the static ForegroundTracker.WithTitle so this
+    /// can drive the real production logic directly, rather than sampling ForegroundTracker.Current
+    /// and hoping the live environment happens to land on Unknown (it cannot be forced: there is
+    /// no seam to make GetForegroundWindow / GetWindowThreadProcessId / Process.GetProcessById
+    /// fail on demand, and a test host with any interactive desktop resolves to a real process,
+    /// making that style of test an unconditional pass).
     /// </summary>
     [Fact]
-    public void Current_NeverAttachesATitleToAnUnresolvedApp()
+    public void WithTitle_WithholdsTheTitleFromAnUnresolvedApp()
     {
-        using var tracker = new ForegroundTracker();
-        ForegroundApp current = tracker.Current;
+        ForegroundApp result = ForegroundTracker.WithTitle(ForegroundApp.Unknown, "secret");
 
-        if (current == ForegroundApp.Unknown)
-        {
-            Assert.Null(current.WindowTitle);
-        }
+        Assert.Null(result.WindowTitle);
+    }
+
+    [Fact]
+    public void WithTitle_AttachesTheTitleToAResolvedApp()
+    {
+        var resolved = new ForegroundApp("chrome", @"C:\chrome.exe", "chrome", false);
+
+        ForegroundApp result = ForegroundTracker.WithTitle(resolved, "Inbox - Mail");
+
+        Assert.Equal("Inbox - Mail", result.WindowTitle);
     }
 
     [Fact]

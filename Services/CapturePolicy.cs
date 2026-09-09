@@ -13,6 +13,8 @@ internal static class CapturePolicy
     {
         // Two distinct reasons to store nothing: the user never opted into titles at all,
         // or this particular window matched a privacy keyword. Same outcome either way.
+        // RecordBrowserHost is deliberately not gated here: that check lives at the Task 8
+        // call site, which is what fills in UrlHost to begin with. Apply only ever strips it.
         ForegroundApp stored =
             !settings.RecordWindowTitles
             || PrivacyKeywords.Suppresses(app.WindowTitle, app.UrlHost, settings.PrivacyKeywords)
