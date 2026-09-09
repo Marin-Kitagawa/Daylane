@@ -8,7 +8,7 @@ namespace Daylane.Services;
 /// </summary>
 internal static class Migrations
 {
-    internal static readonly string[] Scripts = [V1, V2];
+    internal static readonly string[] Scripts = [V1, V2, V3];
 
     internal static int CurrentVersion => Scripts.Length;
 
@@ -329,5 +329,12 @@ internal static class Migrations
             RefreshTokenEnc BLOB NULL, AccessToken TEXT NULL, ExpiresAt TEXT NULL
         );
         INSERT OR IGNORE INTO AuthState (Id) VALUES (1);
+        """;
+
+    // v3: title search. WindowTitle is written from sub-project 2 onward; this index serves
+    // the search query, which always filters by LocalDate first.
+    private const string V3 = """
+        CREATE INDEX IF NOT EXISTS IX_ActivitySegment_LocalDate_Title
+            ON ActivitySegment (LocalDate, WindowTitle);
         """;
 }
