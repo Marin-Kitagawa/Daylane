@@ -333,6 +333,14 @@ internal static class Migrations
 
     // v3: title search. WindowTitle is written from sub-project 2 onward; this index serves
     // the search query, which always filters by LocalDate first.
+    //
+    // -- SUPERSEDED BY V4. The justification above is wrong and V4 drops this index: the search
+    // -- LIKE has a leading wildcard, so WindowTitle is never used for filtering, and the query
+    // -- selects columns outside the index so it cannot cover either. The script itself must
+    // -- stay byte-for-byte (migrations are append-only; a database at v3 ran exactly this),
+    // -- but do not re-trust the claim -- read V4 before adding an index on this reasoning.
+    // -- Search no longer filters on LocalDate at all; it filters on StartUtc/EndUtc overlap,
+    // -- so that the day it searches is the day every other read shows.
     private const string V3 = """
         CREATE INDEX IF NOT EXISTS IX_ActivitySegment_LocalDate_Title
             ON ActivitySegment (LocalDate, WindowTitle);

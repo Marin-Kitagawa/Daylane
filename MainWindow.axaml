@@ -521,6 +521,13 @@
                                            TextAlignment="Left"
                                            Text="Window titles may be turned off for this app. Turn on title capture in Settings to see a breakdown here." />
                             </StackPanel>
+                            <StackPanel Spacing="4" IsVisible="{Binding ShowNoDetailForSelectedApp}">
+                                <TextBlock Classes="empty-title" Text="Details unavailable" HorizontalAlignment="Left" />
+                                <TextBlock Classes="empty-body"
+                                           HorizontalAlignment="Left"
+                                           TextAlignment="Left"
+                                           Text="Daylane cannot read this app's windows, so it has no breakdown to show. Elevated or protected apps are the usual reason." />
+                            </StackPanel>
                         </StackPanel>
                         <StackPanel Spacing="6"
                                     VerticalAlignment="Center"
@@ -1164,6 +1171,10 @@
                             <TextBlock Text="Ignored windows" FontSize="13" />
                             <TextBlock Classes="muted" FontSize="11"
                                        Text="The time stops counting; remove an entry to start counting it again." />
+                            <TextBlock Classes="muted" FontSize="11"
+                                       IsVisible="{Binding !CanIgnoreByTitleKeyword}"
+                                       TextWrapping="Wrap"
+                                       Text="Title keywords need &quot;Record window titles&quot; on. With it off, a rule can only ignore a whole app." />
                             <ItemsControl ItemsSource="{Binding IgnoreRules}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:IgnoreRule">
@@ -1184,6 +1195,7 @@
                                 <TextBox Text="{Binding NewIgnoreRuleProcess}" PlaceholderText="Process (e.g. chrome)" />
                                 <TextBox Grid.Column="1"
                                          Text="{Binding NewIgnoreRuleKeyword}"
+                                         IsEnabled="{Binding CanIgnoreByTitleKeyword}"
                                          PlaceholderText="Title keyword (optional)" />
                                 <Button Grid.Column="2"
                                         Classes="secondary"

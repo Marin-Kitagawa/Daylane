@@ -99,6 +99,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private AppUsageItemViewModel? _selectedAppUsageItem;
     private string _selectedAppDisplayName = "";
     private string _selectedAppTotalText = "";
+    private bool _selectedAppDetailUnavailable;
     private string _searchQuery = "";
     private readonly ObservableCollection<TitleSearchItemViewModel> _searchResults = [];
     private TitleSearchItemViewModel? _selectedSearchItem;
@@ -361,10 +362,20 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string SelectedAppTotalText => _selectedAppTotalText;
 
-    /// <summary>An app is selected, GetTitleUsage came back empty, so the empty state renders
-    /// -- distinct from HasSelectedApp && !HasSelectedAppTitles only to keep the XAML binding a
-    /// single flag rather than a two-property AND.</summary>
-    public bool ShowNoTitlesForSelectedApp => HasSelectedApp && !HasSelectedAppTitles;
+    /// <summary>An app is selected and has no title breakdown to show -- either titles are off
+    /// (the default, where every row comes back with no title and no host and
+    /// TitleUsagePresenter reports no items) or every window's detail was suppressed. The one
+    /// case this must NOT claim is an app whose detail could never be read at all; that has its
+    /// own message below.</summary>
+    public bool ShowNoTitlesForSelectedApp =>
+        HasSelectedApp && !HasSelectedAppTitles && !_selectedAppDetailUnavailable;
+
+    /// <summary>An app is selected but Daylane never resolved its program file, so there is no
+    /// breakdown to be had whatever the settings say. Kept apart from
+    /// ShowNoTitlesForSelectedApp because sending this user to the title-capture switch would
+    /// be advice that cannot work.</summary>
+    public bool ShowNoDetailForSelectedApp =>
+        HasSelectedApp && !HasSelectedAppTitles && _selectedAppDetailUnavailable;
 
     public string SearchQuery
     {
@@ -699,6 +710,10 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             // set directly here -- the host toggle and its enabled state must catch up.
             OnPropertyChanged(nameof(RecordBrowserHost));
             OnPropertyChanged(nameof(CanRecordBrowserHost));
+
+            // A title-keyword ignore rule can only match a stored title, so the box that
+            // accepts one follows the same switch.
+            OnPropertyChanged(nameof(CanIgnoreByTitleKeyword));
         }
     }
 
@@ -723,6 +738,17 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     /// title -- is pinned instead where it actually lives, in DaylaneSettings.Normalize, by
     /// PrivacySettingsViewModelTests.</summary>
     public bool CanRecordBrowserHost => _settings.Current.RecordWindowTitles;
+
+    /// <summary>Bound to the ignore rule's title-keyword box (IsEnabled) and, negated, to the
+    /// line explaining why it is off. CapturePolicy judges exclusion against the title that
+    /// was STORED -- deliberately, so the live verdict and the rule-change recompute can never
+    /// disagree -- which means a title keyword can match nothing at all while title capture is
+    /// off. That cost was accepted on the grounds that it would be visible immediately rather
+    /// than silently, and this is what makes it visible: without it the box happily accepts a
+    /// rule that is inert forever, with no feedback. Same treatment as CanRecordBrowserHost,
+    /// and untestable for the same reason (MainWindowViewModel cannot be constructed in a unit
+    /// test); the ordering rule it depends on is pinned in CaptureDefaultsTests.</summary>
+    public bool CanIgnoreByTitleKeyword => _settings.Current.RecordWindowTitles;
 
     public ObservableCollection<string> PrivacyKeywords => _privacyKeywords;
 
@@ -1262,6 +1288,15 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
                 continue;
             }
 
+            // Excluded time is not time spent, so it can neither lengthen the longest focus
+            // stretch nor count as a session. It does not end the run either: an ignored window
+            // in the middle of a work stretch is time the user asked not to be counted, not a
+            // break away from the machine (which is what an idle segment above represents).
+            if (segment.Excluded)
+            {
+                continue;
+            }
+
             sessionCount++;
             DateTime start = segment.StartUtc;
             DateTime end = segment.EffectiveEndUtc;
@@ -1366,9 +1401,19 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             duration = TimeSpan.Zero;
         }
 
+        // The denominator of "% of tracked" has to agree with the Apps list beside it, so it
+        // skips what an ignore rule excluded. The selected block itself can still be an
+        // excluded one -- excluded blocks stay on the timeline so the rule stays discoverable
+        // -- and a share of a total it is not part of would be meaningless, so that block says
+        // so outright instead of quoting a percentage.
         TimeSpan dayTracked = TimeSpan.Zero;
         foreach (var item in _timelineSegments)
         {
+            if (item.Excluded)
+            {
+                continue;
+            }
+
             TimeSpan d = item.EffectiveEndUtc - item.StartUtc;
             if (d > TimeSpan.Zero)
             {
@@ -1388,7 +1433,9 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         _selectedDetailDurationText = FormatDuration(duration);
         _selectedDetailKeysText = segment.KeyCount.ToString("N0");
         _selectedDetailClicksText = segment.MouseClickCount.ToString("N0");
-        _selectedDetailShareText = $"{share:0.0}% of tracked";
+        _selectedDetailShareText = segment.Excluded
+            ? "Excluded from totals"
+            : $"{share:0.0}% of tracked";
         _selectedDetailIcon = segment.IsIdle ? null : AppIconLoader.Get(segment.ExePath);
         _selectedDetailColor = segment.IsIdle
             ? new SolidColorBrush(IdlePalette.Fill)
@@ -1419,11 +1466,25 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private void RefreshSelectedAppTitles()
     {
         AppUsageItemViewModel? app = _selectedAppUsageItem;
-        if (app is null || app.IsIdle || string.IsNullOrWhiteSpace(app.ExePath))
+        if (app is null)
         {
             _selectedAppTitles.Clear();
             _selectedAppDisplayName = "";
             _selectedAppTotalText = "";
+            _selectedAppDetailUnavailable = false;
+            NotifySelectedAppTitlesChanged();
+            return;
+        }
+
+        // No exe path (an elevated or protected process) or the synthetic "Away" row: there is
+        // nothing to query and no privacy setting that would change that, so the panel says as
+        // much rather than pointing at the title-capture switch.
+        if (TitleUsagePresenter.DetailUnavailable(app.IsIdle, app.ExePath))
+        {
+            _selectedAppTitles.Clear();
+            _selectedAppDisplayName = app.DisplayName;
+            _selectedAppTotalText = "";
+            _selectedAppDetailUnavailable = true;
             NotifySelectedAppTitlesChanged();
             return;
         }
@@ -1442,6 +1503,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
         _selectedAppDisplayName = app.DisplayName;
         _selectedAppTotalText = FormatDuration(panel.TotalDuration);
+        _selectedAppDetailUnavailable = false;
         NotifySelectedAppTitlesChanged();
     }
 
@@ -1451,6 +1513,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SelectedAppDisplayName));
         OnPropertyChanged(nameof(SelectedAppTotalText));
         OnPropertyChanged(nameof(ShowNoTitlesForSelectedApp));
+        OnPropertyChanged(nameof(ShowNoDetailForSelectedApp));
     }
 
     /// <summary>Rebuilds SearchResults from SearchTitles for SearchQuery over the selected day
@@ -1574,28 +1637,25 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         return false;
     }
 
-    private static double[] BuildHourlyActiveMinutes(IReadOnlyList<ActivitySegment> segments, DateTime localDay)
+    /// <summary>Active minutes per hour for the Day view's chart. Internal rather than private
+    /// for the same reason as TrackingService.BuildDailyActiveMinutes: it is pure and static, so
+    /// the "excluded time is not counted" rule can be asserted on the real production code even
+    /// though MainWindowViewModel itself cannot be constructed in a unit test.</summary>
+    internal static double[] BuildHourlyActiveMinutes(IReadOnlyList<ActivitySegment> segments, DateTime localDay)
     {
         var hours = new double[24];
         DateTime dayStartLocal = localDay.Date;
         DateTime dayEndLocal = dayStartLocal.AddDays(1);
-        DateTime dayStartUtc = dayStartLocal.ToUniversalTime();
-        DateTime dayEndUtc = dayEndLocal.ToUniversalTime();
-        DateTime nowUtc = DateTime.UtcNow;
 
-        foreach (var segment in segments)
+        // Same treatment as every other total: SegmentWindows clips to the day, clamps an open
+        // segment to now, and drops what an ignore rule excluded.
+        foreach (var (_, windowStart, end) in SegmentWindows.Counted(
+            segments.Where(s => !s.IsIdle),
+            dayStartLocal.ToUniversalTime(),
+            dayEndLocal.ToUniversalTime(),
+            DateTime.UtcNow))
         {
-            if (segment.IsIdle)
-            {
-                continue;
-            }
-
-            DateTime start = segment.StartUtc < dayStartUtc ? dayStartUtc : segment.StartUtc;
-            DateTime end = segment.EffectiveEndUtc > dayEndUtc ? dayEndUtc : segment.EffectiveEndUtc;
-            if (end > nowUtc)
-            {
-                end = nowUtc;
-            }
+            DateTime start = windowStart;
 
             while (start < end)
             {

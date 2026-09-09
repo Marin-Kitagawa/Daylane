@@ -73,6 +73,46 @@ public class TitleSearchTests
     }
 
     [Fact]
+    public void SearchTitles_FindsASegmentThatStartedBeforeMidnightAndIsStillOpen()
+    {
+        using var temp = new TempDatabase();
+        using var store = new DailyStatsStore(temp.DatabasePath);
+
+        // A browser left open across midnight: its LocalDate is yesterday, so a LocalDate filter
+        // missed it entirely -- while the timeline, the Apps list and the app-detail drawer all
+        // count its time against today, because they filter on StartUtc/EndUtc overlap. Two
+        // reads of the same day have to give the same answer.
+        DateTime todayLocal = DateTime.Now.Date;
+        DateTime startLocal = todayLocal.AddMinutes(-10);
+        store.OpenSegment(App("chrome", "Quarterly Budget Review"), startLocal.ToUniversalTime());
+
+        DateTime endExclusiveLocal = todayLocal.AddDays(1);
+        var dayRows = store.GetSegmentsForLocalRange(todayLocal, endExclusiveLocal);
+        var hits = store.SearchTitles("budget", todayLocal, endExclusiveLocal);
+
+        Assert.Single(dayRows);
+        Assert.Single(hits);
+        Assert.Equal("Quarterly Budget Review", hits[0].WindowTitle);
+    }
+
+    [Fact]
+    public void SearchTitles_DoesNotReturnASegmentThatEndedBeforeTheRange()
+    {
+        using var temp = new TempDatabase();
+        using var store = new DailyStatsStore(temp.DatabasePath);
+
+        // The other side of the overlap predicate: a segment wholly inside yesterday must not
+        // leak into today's results now that the day boundary is no longer LocalDate.
+        DateTime todayLocal = DateTime.Now.Date;
+        DateTime startLocal = todayLocal.AddHours(-5);
+        long id = store.OpenSegment(App("chrome", "Quarterly Budget Review"), startLocal.ToUniversalTime());
+        store.CloseSegment(id, startLocal.AddHours(1).ToUniversalTime(), 0, 0);
+
+        Assert.Empty(store.SearchTitles("budget", todayLocal, todayLocal.AddDays(1)));
+        Assert.Single(store.SearchTitles("budget", todayLocal.AddDays(-1), todayLocal));
+    }
+
+    [Fact]
     public void SearchTitles_EscapesWildcards()
     {
         using var temp = new TempDatabase();

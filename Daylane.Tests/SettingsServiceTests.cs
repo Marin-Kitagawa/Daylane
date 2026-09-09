@@ -70,13 +70,54 @@ public class SettingsServiceTests
     {
         using var temp = MigratedDatabase();
         var service = new SettingsService(temp.ConnectionString);
-        DaylaneSettings? observed = null;
-        service.Changed += (_, s) => observed = s;
+        SettingsChangedEventArgs? observed = null;
+        service.Changed += (_, e) => observed = e;
 
-        service.Update(s => s with { Appearance = "light" });
+        bool persisted = service.Update(s => s with { Appearance = "light" });
 
         Assert.NotNull(observed);
-        Assert.Equal("light", observed!.Appearance);
+        Assert.Equal("light", observed!.Settings.Appearance);
+        Assert.True(observed.Persisted);
+        Assert.True(persisted);
+    }
+
+    [Fact]
+    public void Update_WhenTheWriteFails_ReportsItAndStillAppliesInMemory()
+    {
+        using var temp = MigratedDatabase();
+        var service = new SettingsService(temp.ConnectionString);
+        SettingsChangedEventArgs? observed = null;
+        service.Changed += (_, e) => observed = e;
+
+        // Stands in for the real failure -- a backup tool holding the database, an I/O error --
+        // in the only way a test can make Write throw deterministically.
+        using (var connection = temp.Open())
+        {
+            using var drop = connection.CreateCommand();
+            drop.CommandText = "DROP TABLE SettingsStore;";
+            drop.ExecuteNonQuery();
+        }
+
+        bool persisted = service.Update(s => s with
+        {
+            RecordWindowTitles = true,
+            IgnoreRules = new[] { new IgnoreRule("Solitaire", null) }
+        });
+
+        // Applied for this session: silently ignoring a privacy or tracking change because the
+        // file was locked would be worse than not persisting it. But the caller and the
+        // subscribers are told, because this change is gone at the next restart -- and the
+        // retroactive recompute must not run against a rule that was never stored.
+        Assert.False(persisted);
+        Assert.NotNull(observed);
+        Assert.False(observed!.Persisted);
+        Assert.True(service.Current.RecordWindowTitles);
+        Assert.Single(service.Current.IgnoreRules!);
+
+        // And the stored view does not move: the retroactive recompute reads this, so it can
+        // never judge the whole table by a rule that is not in the database beside it.
+        Assert.False(service.Persisted.RecordWindowTitles);
+        Assert.Empty(service.Persisted.IgnoreRules!);
     }
 
     [Fact]

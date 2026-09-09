@@ -117,4 +117,79 @@ public class TitleUsagePresenterTests
         Assert.Empty(panel.Items);
         Assert.Equal(TimeSpan.Zero, panel.TotalDuration);
     }
+
+    [Fact]
+    public void Build_BrowserHostHeadersCarryTheirOwnCountedTime()
+    {
+        TitleUsageSummary[] rows =
+        [
+            Row("Inbox", TimeSpan.FromMinutes(5), urlHost: "mail.example.com"),
+            Row("Spam", TimeSpan.FromMinutes(9), urlHost: "mail.example.com", isExcluded: true),
+            Row("Docs Home", TimeSpan.FromMinutes(2), urlHost: "docs.example.com")
+        ];
+
+        var panel = TitleUsagePresenter.Build(rows, isBrowser: true);
+
+        // Time per site is the point of grouping by host, and the groups are already ordered by
+        // it -- so the header shows it rather than leaving the ordering key invisible. Excluded
+        // rows are out of it, exactly as they are out of the panel total, which keeps the
+        // headers summing to that total.
+        var mail = panel.Items.Single(i => i.IsHeader && i.DisplayText == "mail.example.com");
+        var docs = panel.Items.Single(i => i.IsHeader && i.DisplayText == "docs.example.com");
+        Assert.Equal("5m 00s", mail.DurationText);
+        Assert.Equal("2m 00s", docs.DurationText);
+        Assert.Equal(TimeSpan.FromMinutes(7), panel.TotalDuration);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_WithNoTitleOrHostOnAnyRow_ProducesTheEmptyStateNotAnUntitledRow(bool isBrowser)
+    {
+        // The default configuration: titles off, so every segment stored a null title and a null
+        // host and GetTitleUsage returns exactly one (null, null) group with the app's whole
+        // duration. Rendering it gave a fresh user a group called "Other" holding a row called
+        // "(untitled)", and made the "No titles captured" empty state unreachable -- the panel
+        // always had one item, so HasSelectedAppTitles was always true.
+        TitleUsageSummary[] rows = [Row(null, TimeSpan.FromMinutes(10))];
+
+        var panel = TitleUsagePresenter.Build(rows, isBrowser);
+
+        Assert.Empty(panel.Items);
+    }
+
+    [Fact]
+    public void Build_KeepsADetaillessRowWhenAnotherRowHasATitle()
+    {
+        // Not the same case: with titles on, a row whose own title was suppressed by a privacy
+        // keyword is real information about where the time went, so it must not be dropped.
+        TitleUsageSummary[] rows =
+        [
+            Row("Inbox", TimeSpan.FromMinutes(5)),
+            Row(null, TimeSpan.FromMinutes(3))
+        ];
+
+        var panel = TitleUsagePresenter.Build(rows, isBrowser: false);
+
+        Assert.Equal(2, panel.Items.Count);
+        Assert.Contains(panel.Items, i => i.DisplayText == "(untitled)");
+        Assert.Equal(TimeSpan.FromMinutes(8), panel.TotalDuration);
+    }
+
+    [Theory]
+    [InlineData(false, @"C:\Apps\chrome.exe", false)]
+    [InlineData(false, "", true)]
+    [InlineData(false, null, true)]
+    [InlineData(true, "", true)]
+    public void DetailUnavailable_IsTrueOnlyWhenNoBreakdownCouldEverExist(
+        bool isIdle,
+        string? exePath,
+        bool expected)
+    {
+        // An app with no resolved program file (elevated or protected) and the synthetic "Away"
+        // row cannot have a breakdown whatever the privacy settings say. Telling that user to
+        // "turn on title capture in Settings" is advice that cannot work, so the drawer needs
+        // this apart from the titles-are-off case.
+        Assert.Equal(expected, TitleUsagePresenter.DetailUnavailable(isIdle, exePath));
+    }
 }

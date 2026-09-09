@@ -201,30 +201,28 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private static IReadOnlyList<DailyActivityPoint> BuildDailyActiveMinutes(
+    /// <summary>Active minutes per local day for the Insights chart. Internal rather than
+    /// private so the rule that matters can be asserted directly: excluded time must not show
+    /// up in these minutes. Pure and static -- nothing here touches the instance, which is what
+    /// makes it testable at all (a TrackingService cannot be constructed in a unit test).</summary>
+    internal static IReadOnlyList<DailyActivityPoint> BuildDailyActiveMinutes(
         IReadOnlyList<ActivitySegment> segments,
         DateTime startLocal,
         DateTime endLocalInclusive)
     {
-        DateTime nowUtc = DateTime.UtcNow;
         int dayCount = (endLocalInclusive - startLocal).Days + 1;
         var minutes = new double[dayCount];
 
-        foreach (var segment in segments)
+        // Idle segments are dropped here (this chart is active minutes, and idle time has its
+        // own row elsewhere); excluded segments are dropped by SegmentWindows, along with the
+        // range clip and now-clamp this used to spell out for itself.
+        foreach (var (_, windowStart, segEnd) in SegmentWindows.Counted(
+            segments.Where(s => !s.IsIdle),
+            startLocal.ToUniversalTime(),
+            endLocalInclusive.AddDays(1).ToUniversalTime(),
+            DateTime.UtcNow))
         {
-            if (segment.IsIdle)
-            {
-                continue;
-            }
-
-            DateTime rangeStartUtc = startLocal.ToUniversalTime();
-            DateTime rangeEndUtc = endLocalInclusive.AddDays(1).ToUniversalTime();
-            DateTime segStart = segment.StartUtc < rangeStartUtc ? rangeStartUtc : segment.StartUtc;
-            DateTime segEnd = segment.EffectiveEndUtc > rangeEndUtc ? rangeEndUtc : segment.EffectiveEndUtc;
-            if (segEnd > nowUtc)
-            {
-                segEnd = nowUtc;
-            }
+            DateTime segStart = windowStart;
 
             while (segStart < segEnd)
             {
@@ -319,11 +317,21 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         _store.Dispose();
     }
 
-    private void OnSettingsChanged(object? sender, DaylaneSettings settings) =>
+    private void OnSettingsChanged(object? sender, SettingsChangedEventArgs e) =>
         Dispatcher.UIThread.Post(() =>
         {
-            SetTrackingEnabled(settings.TrackingEnabled);
-            RecomputeExcludedIfRulesChanged(settings);
+            SetTrackingEnabled(e.Settings.TrackingEnabled);
+
+            // Only against rules that actually reached the database. A rule that applies in
+            // memory but was never stored disappears at the next restart; recomputing the whole
+            // table against it would leave that history excluded with no rule left to delete,
+            // which is the one outcome the ignore-rule design must not produce. The rule still
+            // takes effect for the rest of this session through CapturePolicy, so the user is
+            // not silently ignored -- only the irreversible half is held back.
+            if (e.Persisted)
+            {
+                RecomputeExcludedIfRulesChanged(e.Settings);
+            }
         });
 
     // Runs on the UI thread. The compare-and-swap on _lastAppliedIgnoreRules must happen here,
@@ -340,9 +348,10 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        IReadOnlyList<IgnoreRule> previouslyApplied = _lastAppliedIgnoreRules;
         _lastAppliedIgnoreRules = rules;
 
-        // Re-read Settings.Current.IgnoreRules at execution time rather than close over `rules`:
+        // Re-read Settings.Persisted.IgnoreRules at execution time rather than close over `rules`:
         // two rapid rule edits each pass this compare-and-swap and queue their own Task.Run body,
         // and those two bodies race on _dbWriteLock with no ordering guarantee. If they closed
         // over the list captured at queue time, whichever body's lock acquisition lost the race
@@ -350,16 +359,36 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         // _lastAppliedIgnoreRules already claims the newer -- and nothing re-triggers a pass to
         // fix it. Reading fresh here means whichever body actually runs last applies the current
         // rules, so the final state is correct regardless of completion order.
+        // Persisted, not Current: a rule edit that failed to reach the database applies in
+        // memory for this session but is gone at the next restart, and a full-table recompute
+        // against it would leave history excluded with no rule left to delete. Reading Persisted
+        // keeps "the newest rule set wins" without ever judging the table by a rule that is not
+        // stored alongside it.
         Task.Run(() =>
         {
             try
             {
-                _store.RecomputeExcluded(Settings.Current.IgnoreRules ?? Array.Empty<IgnoreRule>());
+                _store.RecomputeExcluded(Settings.Persisted.IgnoreRules ?? Array.Empty<IgnoreRule>());
             }
             catch (Exception ex)
             {
-                // A failed recompute must not take down a settings save; the next rule edit
-                // (or app restart) gets another chance to bring the table in line.
+                // A failed recompute must not take down a settings save. Nothing recomputes at
+                // startup -- _lastAppliedIgnoreRules is seeded from the stored settings in the
+                // constructor -- so a restart is NOT another chance: whatever this pass failed
+                // to write stays stale until something makes the guard above fire again. Roll
+                // the marker back to what was actually applied so the next settings write of
+                // any kind retries, instead of short-circuiting on a rule set that never
+                // reached the table.
+                Dispatcher.UIThread.Post(() =>
+                {
+                    // Only if no later edit has moved on in the meantime; that pass owns the
+                    // marker now and its own failure path will roll back to its own baseline.
+                    if (ReferenceEquals(_lastAppliedIgnoreRules, rules))
+                    {
+                        _lastAppliedIgnoreRules = previouslyApplied;
+                    }
+                });
+
                 Debug.WriteLine($"Excluded recompute failed: {ex.Message}");
             }
         });

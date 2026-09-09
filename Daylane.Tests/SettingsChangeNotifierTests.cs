@@ -31,7 +31,8 @@ public class SettingsChangeNotifierTests
                 "MinimizeToTray",
                 "RecordWindowTitles",
                 "RecordBrowserHost",
-                "CanRecordBrowserHost"
+                "CanRecordBrowserHost",
+                "CanIgnoreByTitleKeyword"
             ],
             raised);
     }

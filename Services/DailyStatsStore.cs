@@ -403,31 +403,24 @@ internal sealed class DailyStatsStore : IDisposable
         DateTime localDay) =>
         AggregateAppUsage(segments, localDay.Date, localDay.Date.AddDays(1));
 
+    /// <summary>
+    /// The Day view's Apps list and the Insights period app usage. Time an ignore rule
+    /// excluded is absent, which is the whole point of the rule -- <see cref="SegmentWindows"/>
+    /// owns that, so this cannot count it back in by omission.
+    /// </summary>
     public IReadOnlyList<AppUsageSummary> AggregateAppUsage(
         IReadOnlyList<ActivitySegment> segments,
         DateTime rangeStartLocal,
         DateTime rangeEndExclusiveLocal)
     {
-        DateTime rangeStartUtc = rangeStartLocal.ToUniversalTime();
-        DateTime rangeEndUtc = rangeEndExclusiveLocal.ToUniversalTime();
-        DateTime nowUtc = DateTime.UtcNow;
-
         var totals = new Dictionary<string, Accumulator>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var segment in segments)
+        foreach (var (segment, start, end) in SegmentWindows.Counted(
+            segments,
+            rangeStartLocal.ToUniversalTime(),
+            rangeEndExclusiveLocal.ToUniversalTime(),
+            DateTime.UtcNow))
         {
-            DateTime start = segment.StartUtc < rangeStartUtc ? rangeStartUtc : segment.StartUtc;
-            DateTime end = segment.EffectiveEndUtc > rangeEndUtc ? rangeEndUtc : segment.EffectiveEndUtc;
-            if (end > nowUtc)
-            {
-                end = nowUtc;
-            }
-
-            if (end <= start)
-            {
-                continue;
-            }
-
             string key = segment.IsIdle
                 ? "__idle__"
                 : (string.IsNullOrEmpty(segment.ExePath) ? segment.ProcessName : segment.ExePath);
@@ -466,41 +459,34 @@ internal sealed class DailyStatsStore : IDisposable
 
     /// <summary>
     /// Per-title breakdown for one app over a date range, for the app-detail drawer. Deliberately
-    /// not a second SQL aggregate: <see cref="AggregateAppUsage"/> already owns the correct
+    /// not a second SQL aggregate: <see cref="SegmentWindows"/> already owns the correct
     /// range-clipping, open-segment, and now-clamp treatment, so this filters
-    /// <see cref="GetSegmentsForLocalRange"/> to the requested exe and mirrors that same
-    /// accumulator shape, grouping by (WindowTitle, UrlHost) instead of by exe path.
-    /// Excluded rows are returned and marked, never dropped: hiding them would make the rule
-    /// that excluded them undiscoverable.
+    /// <see cref="GetSegmentsForLocalRange"/> to the requested exe and accumulates the same
+    /// windows <see cref="AggregateAppUsage"/> does, grouping by (WindowTitle, UrlHost) instead
+    /// of by exe path.
+    /// This is the one reader that asks for excluded windows too (<c>includeExcluded</c>):
+    /// excluded rows are returned and marked, never dropped, because hiding them would make the
+    /// rule that excluded them undiscoverable. Their duration is therefore part of a ROW here
+    /// but of no total: the panel's own total is computed by <c>TitleUsagePresenter</c>, which
+    /// skips them.
     /// </summary>
     public IReadOnlyList<TitleUsageSummary> GetTitleUsage(
         string exePath,
         DateTime rangeStartLocal,
         DateTime rangeEndExclusiveLocal)
     {
-        DateTime rangeStartUtc = rangeStartLocal.ToUniversalTime();
-        DateTime rangeEndUtc = rangeEndExclusiveLocal.ToUniversalTime();
-        DateTime nowUtc = DateTime.UtcNow;
-
         var segments = GetSegmentsForLocalRange(rangeStartLocal, rangeEndExclusiveLocal)
             .Where(s => string.Equals(s.ExePath, exePath, StringComparison.OrdinalIgnoreCase));
 
         var totals = new Dictionary<(string? Title, string? UrlHost), TitleAccumulator>();
 
-        foreach (var segment in segments)
+        foreach (var (segment, start, end) in SegmentWindows.Counted(
+            segments,
+            rangeStartLocal.ToUniversalTime(),
+            rangeEndExclusiveLocal.ToUniversalTime(),
+            DateTime.UtcNow,
+            includeExcluded: true))
         {
-            DateTime start = segment.StartUtc < rangeStartUtc ? rangeStartUtc : segment.StartUtc;
-            DateTime end = segment.EffectiveEndUtc > rangeEndUtc ? rangeEndUtc : segment.EffectiveEndUtc;
-            if (end > nowUtc)
-            {
-                end = nowUtc;
-            }
-
-            if (end <= start)
-            {
-                continue;
-            }
-
             var key = (segment.WindowTitle, segment.UrlHost);
 
             if (!totals.TryGetValue(key, out var acc))
@@ -536,11 +522,18 @@ internal sealed class DailyStatsStore : IDisposable
 
     /// <summary>
     /// "What was I doing when I was working on X" search over window titles and browser hosts.
-    /// Filters on <c>LocalDate</c> first (text range, same pattern as
-    /// <see cref="GetTotalsForDateRange"/>'s LogDate query) rather than on StartUtc, so the scan
-    /// can use <c>IX_ActivitySegment_LocalDate_Title</c>. Plain LIKE, not FTS: sub-project 6
-    /// brings FTS5 for screen-memory text and a second search implementation now would be two to
-    /// maintain. Excluded rows are returned, not dropped, matching <see cref="GetTitleUsage"/>.
+    /// Filters on the same StartUtc/EndUtc OVERLAP as <see cref="GetSegmentsForLocalRange"/>,
+    /// not on <c>LocalDate</c>: LocalDate is the day a segment STARTED, so a browser left open
+    /// across midnight belongs to yesterday's LocalDate while the timeline, the Apps list and
+    /// the app-detail drawer all count its time against today. Searching its title has to find
+    /// it in the same day those reads show it in, or two reads of one day disagree.
+    /// The overlap predicate can use <c>IX_ActivitySegment_StartEnd (StartUtc, EndUtc)</c> for
+    /// its StartUtc bound, the same index the timeline's query uses; the LIKE has no leading
+    /// anchor and is evaluated per candidate row either way, which is why the dropped
+    /// <c>IX_ActivitySegment_LocalDate_Title</c> never served this (see migration V4).
+    /// Plain LIKE, not FTS: sub-project 6 brings FTS5 for screen-memory text and a second
+    /// search implementation now would be two to maintain. Excluded rows are returned, not
+    /// dropped, matching <see cref="GetTitleUsage"/>.
     /// </summary>
     public IReadOnlyList<ActivitySegment> SearchTitles(
         string query,
@@ -553,10 +546,10 @@ internal sealed class DailyStatsStore : IDisposable
             return Array.Empty<ActivitySegment>();
         }
 
-        // rangeEndLocal is exclusive (mirrors GetSegmentsForLocalRange/GetTitleUsage), so the
-        // inclusive LocalDate upper bound is the day before it, not rangeEndLocal's own day.
-        string startKey = rangeStartLocal.Date.ToString("yyyy-MM-dd");
-        string endKey = rangeEndLocal.AddTicks(-1).Date.ToString("yyyy-MM-dd");
+        // rangeEndLocal is exclusive, mirroring GetSegmentsForLocalRange/GetTitleUsage.
+        DateTime rangeStartUtc = rangeStartLocal.ToUniversalTime();
+        DateTime rangeEndUtc = rangeEndLocal.ToUniversalTime();
+        string nowUtc = Timestamps.ToUtcText(DateTime.UtcNow);
         string pattern = "%" + EscapeLikePattern(query) + "%";
 
         lock (_dbWriteLock)
@@ -569,14 +562,15 @@ internal sealed class DailyStatsStore : IDisposable
                 SELECT Id, StartUtc, EndUtc, ProcessName, ExePath, DisplayName, IsIdle, KeyCount, MouseClickCount,
                     WindowTitle, UrlHost, Excluded
                 FROM ActivitySegment
-                WHERE LocalDate >= $start
-                  AND LocalDate <= $end
+                WHERE StartUtc < $rangeEnd
+                  AND COALESCE(EndUtc, $now) > $rangeStart
                   AND (WindowTitle LIKE $q ESCAPE '\' OR UrlHost LIKE $q ESCAPE '\')
                 ORDER BY StartUtc DESC
                 LIMIT $limit;
                 """;
-            command.Parameters.AddWithValue("$start", startKey);
-            command.Parameters.AddWithValue("$end", endKey);
+            command.Parameters.AddWithValue("$rangeStart", Timestamps.ToUtcText(rangeStartUtc));
+            command.Parameters.AddWithValue("$rangeEnd", Timestamps.ToUtcText(rangeEndUtc));
+            command.Parameters.AddWithValue("$now", nowUtc);
             command.Parameters.AddWithValue("$q", pattern);
             command.Parameters.AddWithValue("$limit", limit);
 

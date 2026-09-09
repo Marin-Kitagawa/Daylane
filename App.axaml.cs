@@ -72,15 +72,15 @@ public partial class App : Application
             // SetWindowPos with SWP_FRAMECHANGED -- per character. Only the appearance actually
             // needs the titlebar repainted, so remember what is applied and skip the rest.
             string appliedAppearance = settings.Current.Appearance;
-            settings.Changed += (_, current) => Dispatcher.UIThread.Post(() =>
+            settings.Changed += (_, e) => Dispatcher.UIThread.Post(() =>
             {
-                if (string.Equals(current.Appearance, appliedAppearance, StringComparison.Ordinal))
+                if (string.Equals(e.Settings.Appearance, appliedAppearance, StringComparison.Ordinal))
                 {
                     return;
                 }
 
-                appliedAppearance = current.Appearance;
-                RequestedThemeVariant = ThemeSelector.ToVariant(current.Appearance);
+                appliedAppearance = e.Settings.Appearance;
+                RequestedThemeVariant = ThemeSelector.ToVariant(e.Settings.Appearance);
                 if (_mainWindow is not null)
                 {
                     WindowTheme.Apply(_mainWindow, ThemeSelector.IsDark(_mainWindow.ActualThemeVariant));
