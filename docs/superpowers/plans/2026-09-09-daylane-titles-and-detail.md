@@ -936,8 +936,8 @@ git add Services/DailyStatsStore.cs Services/TrackingService.cs Daylane.Tests/Ti
 git commit -S -m "Persist window titles and the excluded flag
 
 Policy lives in TrackingService and persistence in the store. Exclusion
-is evaluated before privacy suppression strips the title, so suppressing
-a window cannot silently start counting time the user excluded."
+is evaluated against the title that will be stored, so the live verdict
+and a later recompute can never disagree."
 ```
 
 ---
