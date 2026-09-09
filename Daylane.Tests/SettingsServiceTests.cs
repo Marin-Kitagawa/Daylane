@@ -30,6 +30,29 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public void Update_WithNoSeededRow_StillPersists()
+    {
+        // The migration seeds row 1, so this is the state no supported path produces -- which is
+        // the point: an UPDATE ... WHERE Id = 1 against a missing row reports success and writes
+        // nothing, so settings would stop persisting with no error to notice. The upsert must
+        // create the row instead.
+        using var temp = MigratedDatabase();
+        using (var connection = temp.Open())
+        {
+            using var delete = connection.CreateCommand();
+            delete.CommandText = "DELETE FROM SettingsStore;";
+            delete.ExecuteNonQuery();
+        }
+
+        var service = new SettingsService(temp.ConnectionString);
+        service.Update(s => s with { Appearance = "dark", RetentionDays = 90 });
+
+        var reloaded = new SettingsService(temp.ConnectionString);
+        Assert.Equal("dark", reloaded.Current.Appearance);
+        Assert.Equal(90, reloaded.Current.RetentionDays);
+    }
+
+    [Fact]
     public void Update_PersistsAcrossInstances()
     {
         using var temp = MigratedDatabase();

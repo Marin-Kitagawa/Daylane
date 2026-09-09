@@ -66,19 +66,26 @@ internal sealed class DailyStatsStore : IDisposable
             connection.Open();
 
             using var command = connection.CreateCommand();
+            // DeviceId and UpdatedAt have DDL defaults ('local' / the epoch) that exist only so
+            // the v2 migration could add the columns to existing rows. A row captured here must
+            // carry the real values: DeviceIdentity promotes 'local' exactly once per database,
+            // so anything left on the default after that is wrong forever.
             command.CommandText = """
                 INSERT INTO ActivitySegment (
                     StartUtc, EndUtc, ProcessName, ExePath, DisplayName, IsIdle, KeyCount, MouseClickCount,
-                    LocalDate, LocalHour)
-                VALUES ($start, NULL, $process, $exe, $display, $idle, 0, 0, $localDate, $localHour);
+                    LocalDate, LocalHour, DeviceId, UpdatedAt)
+                VALUES ($start, NULL, $process, $exe, $display, $idle, 0, 0, $localDate, $localHour,
+                    $device, $now);
                 """;
-            command.Parameters.AddWithValue("$start", ToUtcText(startUtc));
+            command.Parameters.AddWithValue("$start", Timestamps.ToUtcText(startUtc));
             command.Parameters.AddWithValue("$process", app.ProcessName);
             command.Parameters.AddWithValue("$exe", app.ExePath);
             command.Parameters.AddWithValue("$display", app.DisplayName);
             command.Parameters.AddWithValue("$idle", app.IsIdle ? 1 : 0);
             command.Parameters.AddWithValue("$localDate", ToLocalDateKey(startUtc));
             command.Parameters.AddWithValue("$localHour", ToLocalHour(startUtc));
+            command.Parameters.AddWithValue("$device", _deviceId);
+            command.Parameters.AddWithValue("$now", Timestamps.UtcNowText());
             command.ExecuteNonQuery();
 
             using var idCommand = connection.CreateCommand();
@@ -99,12 +106,14 @@ internal sealed class DailyStatsStore : IDisposable
                 UPDATE ActivitySegment
                 SET EndUtc = $end,
                     KeyCount = $keys,
-                    MouseClickCount = $clicks
+                    MouseClickCount = $clicks,
+                    UpdatedAt = $now
                 WHERE Id = $id;
                 """;
-            command.Parameters.AddWithValue("$end", ToUtcText(endUtc));
+            command.Parameters.AddWithValue("$end", Timestamps.ToUtcText(endUtc));
             command.Parameters.AddWithValue("$keys", keyCount);
             command.Parameters.AddWithValue("$clicks", mouseClickCount);
+            command.Parameters.AddWithValue("$now", Timestamps.UtcNowText());
             command.Parameters.AddWithValue("$id", segmentId);
             command.ExecuteNonQuery();
         }
@@ -121,11 +130,13 @@ internal sealed class DailyStatsStore : IDisposable
             command.CommandText = """
                 UPDATE ActivitySegment
                 SET KeyCount = $keys,
-                    MouseClickCount = $clicks
+                    MouseClickCount = $clicks,
+                    UpdatedAt = $now
                 WHERE Id = $id AND EndUtc IS NULL;
                 """;
             command.Parameters.AddWithValue("$keys", keyCount);
             command.Parameters.AddWithValue("$clicks", mouseClickCount);
+            command.Parameters.AddWithValue("$now", Timestamps.UtcNowText());
             command.Parameters.AddWithValue("$id", segmentId);
             command.ExecuteNonQuery();
         }
@@ -138,22 +149,28 @@ internal sealed class DailyStatsStore : IDisposable
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
+            string nowText = Timestamps.UtcNowText();
+
             using var command = connection.CreateCommand();
             command.CommandText = """
                 UPDATE ActivitySegment
-                SET EndUtc = $end
+                SET EndUtc = $end,
+                    UpdatedAt = $now
                 WHERE EndUtc IS NULL;
                 """;
-            command.Parameters.AddWithValue("$end", ToUtcText(endUtc));
+            command.Parameters.AddWithValue("$end", Timestamps.ToUtcText(endUtc));
+            command.Parameters.AddWithValue("$now", nowText);
             command.ExecuteNonQuery();
 
             using var openApps = connection.CreateCommand();
             openApps.CommandText = """
                 UPDATE OpenAppSegment
-                SET EndUtc = $end
+                SET EndUtc = $end,
+                    UpdatedAt = $now
                 WHERE EndUtc IS NULL;
                 """;
-            openApps.Parameters.AddWithValue("$end", ToUtcText(endUtc));
+            openApps.Parameters.AddWithValue("$end", Timestamps.ToUtcText(endUtc));
+            openApps.Parameters.AddWithValue("$now", nowText);
             openApps.ExecuteNonQuery();
         }
     }
@@ -167,15 +184,20 @@ internal sealed class DailyStatsStore : IDisposable
 
             using var command = connection.CreateCommand();
             command.CommandText = """
-                INSERT INTO OpenAppSegment (StartUtc, EndUtc, ProcessName, ExePath, DisplayName, LocalDate, LocalHour)
-                VALUES ($start, NULL, $process, $exe, $display, $localDate, $localHour);
+                INSERT INTO OpenAppSegment (
+                    StartUtc, EndUtc, ProcessName, ExePath, DisplayName, LocalDate, LocalHour,
+                    DeviceId, UpdatedAt)
+                VALUES ($start, NULL, $process, $exe, $display, $localDate, $localHour,
+                    $device, $now);
                 """;
-            command.Parameters.AddWithValue("$start", ToUtcText(startUtc));
+            command.Parameters.AddWithValue("$start", Timestamps.ToUtcText(startUtc));
             command.Parameters.AddWithValue("$process", app.ProcessName);
             command.Parameters.AddWithValue("$exe", app.ExePath);
             command.Parameters.AddWithValue("$display", app.DisplayName);
             command.Parameters.AddWithValue("$localDate", ToLocalDateKey(startUtc));
             command.Parameters.AddWithValue("$localHour", ToLocalHour(startUtc));
+            command.Parameters.AddWithValue("$device", _deviceId);
+            command.Parameters.AddWithValue("$now", Timestamps.UtcNowText());
             command.ExecuteNonQuery();
 
             using var idCommand = connection.CreateCommand();
@@ -194,10 +216,12 @@ internal sealed class DailyStatsStore : IDisposable
             using var command = connection.CreateCommand();
             command.CommandText = """
                 UPDATE OpenAppSegment
-                SET EndUtc = $end
+                SET EndUtc = $end,
+                    UpdatedAt = $now
                 WHERE Id = $id;
                 """;
-            command.Parameters.AddWithValue("$end", ToUtcText(endUtc));
+            command.Parameters.AddWithValue("$end", Timestamps.ToUtcText(endUtc));
+            command.Parameters.AddWithValue("$now", Timestamps.UtcNowText());
             command.Parameters.AddWithValue("$id", segmentId);
             command.ExecuteNonQuery();
         }
@@ -213,7 +237,7 @@ internal sealed class DailyStatsStore : IDisposable
         DateTime rangeStartUtc = rangeStartLocal.ToUniversalTime();
         DateTime rangeEndUtc = rangeEndExclusiveLocal.ToUniversalTime();
         DateTime nowUtc = DateTime.UtcNow;
-        string nowText = ToUtcText(nowUtc);
+        string nowText = Timestamps.ToUtcText(nowUtc);
 
         lock (_dbWriteLock)
         {
@@ -227,8 +251,8 @@ internal sealed class DailyStatsStore : IDisposable
                 WHERE StartUtc < $rangeEnd
                   AND COALESCE(EndUtc, $now) > $rangeStart;
                 """;
-            command.Parameters.AddWithValue("$rangeStart", ToUtcText(rangeStartUtc));
-            command.Parameters.AddWithValue("$rangeEnd", ToUtcText(rangeEndUtc));
+            command.Parameters.AddWithValue("$rangeStart", Timestamps.ToUtcText(rangeStartUtc));
+            command.Parameters.AddWithValue("$rangeEnd", Timestamps.ToUtcText(rangeEndUtc));
             command.Parameters.AddWithValue("$now", nowText);
 
             var totals = new Dictionary<string, OpenAccumulator>(StringComparer.OrdinalIgnoreCase);
@@ -337,7 +361,7 @@ internal sealed class DailyStatsStore : IDisposable
     {
         DateTime rangeStartUtc = rangeStartLocal.ToUniversalTime();
         DateTime rangeEndUtc = rangeEndExclusiveLocal.ToUniversalTime();
-        string nowUtc = ToUtcText(DateTime.UtcNow);
+        string nowUtc = Timestamps.ToUtcText(DateTime.UtcNow);
 
         lock (_dbWriteLock)
         {
@@ -352,8 +376,8 @@ internal sealed class DailyStatsStore : IDisposable
                   AND COALESCE(EndUtc, $now) > $rangeStart
                 ORDER BY StartUtc;
                 """;
-            command.Parameters.AddWithValue("$rangeStart", ToUtcText(rangeStartUtc));
-            command.Parameters.AddWithValue("$rangeEnd", ToUtcText(rangeEndUtc));
+            command.Parameters.AddWithValue("$rangeStart", Timestamps.ToUtcText(rangeStartUtc));
+            command.Parameters.AddWithValue("$rangeEnd", Timestamps.ToUtcText(rangeEndUtc));
             command.Parameters.AddWithValue("$now", nowUtc);
 
             var segments = new List<ActivitySegment>();
@@ -488,6 +512,12 @@ internal sealed class DailyStatsStore : IDisposable
         Flush();
     }
 
+    /// <summary>
+    /// Where a default-constructed store puts its database. Startup error reporting needs to
+    /// name the file even when construction threw before a store existed to ask.
+    /// </summary>
+    internal static string DefaultDatabasePath => ResolveDatabasePath();
+
     private static string ResolveDatabasePath() =>
         Path.Combine(AppContext.BaseDirectory, "daylane.db");
 
@@ -546,7 +576,7 @@ internal sealed class DailyStatsStore : IDisposable
                     dateParam.Value = date;
                     keysParam.Value = keyCountsByDate.GetValueOrDefault(date);
                     clicksParam.Value = mouseCountsByDate.GetValueOrDefault(date);
-                    nowParam.Value = ToUtcText(DateTime.UtcNow);
+                    nowParam.Value = Timestamps.ToUtcText(DateTime.UtcNow);
                     command.ExecuteNonQuery();
                 }
 
@@ -608,9 +638,6 @@ internal sealed class DailyStatsStore : IDisposable
     // 'localtime') so rows written before and after the migration agree on the same day/hour.
     private static int ToLocalHour(DateTime timestampUtc) =>
         timestampUtc.ToLocalTime().Hour;
-
-    private static string ToUtcText(DateTime utc) =>
-        DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("O");
 
     private static DateTime ParseUtc(string text) =>
         DateTime.Parse(text, null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime();

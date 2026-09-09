@@ -39,7 +39,7 @@ internal static class DeviceIdentity
                 """;
             insert.Parameters.AddWithValue("$id", deviceId);
             insert.Parameters.AddWithValue("$name", Environment.MachineName);
-            insert.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O"));
+            insert.Parameters.AddWithValue("$now", Timestamps.UtcNowText());
             insert.ExecuteNonQuery();
         }
 

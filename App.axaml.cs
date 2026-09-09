@@ -40,7 +40,24 @@ public partial class App : Application
             }
             catch (InvalidOperationException ex)
             {
+                // A failed migration; its message already names the backup file.
                 desktop.MainWindow = CreateErrorWindow(ex.Message);
+                base.OnFrameworkInitializationCompleted();
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Opening the database, the WAL pragma, reading user_version and minting the
+                // device row all raise SqliteException, which is not an InvalidOperationException:
+                // a locked or read-only file used to escape the catch above and kill startup with
+                // no window at all. Daylane cannot run without its database, so show the failure
+                // instead of continuing into a half-initialised app.
+                desktop.MainWindow = CreateErrorWindow(
+                    $"Daylane could not start: {ex.Message}"
+                    + $"\n\nIts database is \"{DailyStatsStore.DefaultDatabasePath}\". "
+                    + "If another copy of Daylane is already running, or that folder is not "
+                    + "writable, close the other copy or move Daylane somewhere writable and "
+                    + "try again.");
                 base.OnFrameworkInitializationCompleted();
                 return;
             }
@@ -49,8 +66,20 @@ public partial class App : Application
 
             var settings = _trackingService.Settings;
             RequestedThemeVariant = ThemeSelector.ToVariant(settings.Current.Appearance);
+
+            // Changed fires for every settings write, and NumericUpDown commits per keystroke,
+            // so typing a retention value used to force one WindowTheme.Apply -- a native
+            // SetWindowPos with SWP_FRAMECHANGED -- per character. Only the appearance actually
+            // needs the titlebar repainted, so remember what is applied and skip the rest.
+            string appliedAppearance = settings.Current.Appearance;
             settings.Changed += (_, current) => Dispatcher.UIThread.Post(() =>
             {
+                if (string.Equals(current.Appearance, appliedAppearance, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                appliedAppearance = current.Appearance;
                 RequestedThemeVariant = ThemeSelector.ToVariant(current.Appearance);
                 if (_mainWindow is not null)
                 {

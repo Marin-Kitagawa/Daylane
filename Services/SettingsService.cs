@@ -76,7 +76,12 @@ internal sealed class SettingsService
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = "UPDATE SettingsStore SET Data = $data WHERE Id = 1;";
+            // Upsert, not UPDATE: an UPDATE against a missing row 1 affects nothing and reports
+            // success, so settings would stop persisting without a single error anywhere.
+            command.CommandText = """
+                INSERT INTO SettingsStore (Id, Data) VALUES (1, $data)
+                ON CONFLICT(Id) DO UPDATE SET Data = $data;
+                """;
             command.Parameters.AddWithValue("$data", merged.ToJsonString());
             command.ExecuteNonQuery();
         }

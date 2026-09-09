@@ -89,10 +89,18 @@ internal static class Migrations
             // without a clean checkpoint (a crash, a killed process) can still be sitting
             // in a leftover -wal sidecar that a bare file copy would never see. TRUNCATE
             // folds that sidecar back into the main file so the .bak is self-contained.
+            //
+            // A blocked checkpoint does not throw: it returns a row whose first column, busy,
+            // is non-zero and leaves the sidecar in place. Reading that column is the only way
+            // to tell a complete checkpoint from one that quietly gave up, and a .bak taken
+            // after a busy checkpoint can be missing the most recent committed rows.
             using (var checkpoint = connection.CreateCommand())
             {
                 checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-                checkpoint.ExecuteNonQuery();
+                if (checkpoint.ExecuteScalar() is long busy && busy != 0)
+                {
+                    return false;
+                }
             }
 
             File.Copy(databasePath, $"{databasePath}.bak.v{fromVersion}", overwrite: true);
