@@ -671,6 +671,15 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     /// The close must come first: this service holds an open segment's row id, and purging
     /// underneath it would leave the next flush writing counts against a row that no longer
     /// exists -- a silent no-op that leaves memory and the database permanently disagreeing.
+    ///
+    /// Both trackers are stopped around the close and started again afterwards, exactly as
+    /// SetTrackingEnabled does, and for exactly the reason ForegroundTracker.Stop() spells out:
+    /// both are edge-triggered, so a cache that survives a close means the next poll sees no
+    /// change and opens nothing -- "recording nothing at all until the user happened to switch
+    /// apps". A purge closes everything, so without this a user with several apps open records
+    /// no row for any of them until a window opens or closes, potentially hours later. Stop()
+    /// clears the caches; Start() polls synchronously and reopens against a clean slate. This is
+    /// not redundant with the closes below: please do not remove it.
     /// </summary>
     internal int PurgeRecordedActivity()
     {
@@ -683,6 +692,14 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         _purging = true;
         try
         {
+            // Before the closes, matching SetTrackingEnabled's ordering: parks both poll timers
+            // and drops both caches, so nothing samples the database mid-purge.
+            if (_started)
+            {
+                _foreground.Stop();
+                _openApps.Stop();
+            }
+
             CloseOpenSegment(DateTime.UtcNow);
             CloseAllOpenApps(DateTime.UtcNow);
             _store.Flush();
@@ -703,6 +720,17 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         finally
         {
             _purging = false;
+
+            // After _purging is cleared, or the synchronous Poll() inside Start() would raise
+            // Changed straight into handlers that are still declining everything -- the restart
+            // would then be silently wasted and the gap it exists to close would stay open. In
+            // the finally rather than after the try so a failed purge still leaves tracking
+            // running: the rows may not have been deleted, but recording must not stop.
+            if (_started && _trackingEnabled)
+            {
+                _foreground.Start();
+                _openApps.Start();
+            }
         }
     }
 
