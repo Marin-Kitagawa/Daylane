@@ -27,6 +27,7 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     private string _currentAppName = "Starting…";
     private volatile bool _uiVisible = true;
     private volatile bool _trackingEnabled;
+    private volatile bool _purging;
     private bool _started;
     private bool _disposed;
     private IReadOnlyList<IgnoreRule> _lastAppliedIgnoreRules = Array.Empty<IgnoreRule>();
@@ -430,7 +431,12 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
 
     private void OnForegroundChanged(ForegroundApp app)
     {
-        if (_disposed || !_trackingEnabled)
+        // Also decline while a purge is in flight: a segment opened between the close and the
+        // delete would be deleted out from under the id we just stored -- the exact dangling-id
+        // defect the close-first ordering in PurgeRecordedActivity exists to prevent. A missed
+        // foreground switch during a purge is correct; the alternative is recording a segment
+        // that is about to be deleted anyway.
+        if (_disposed || !_trackingEnabled || _purging)
         {
             return;
         }
@@ -449,7 +455,9 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
 
     private void OnOpenAppsChanged(IReadOnlyList<ForegroundApp> apps)
     {
-        if (_disposed || !_trackingEnabled)
+        // Same reasoning as OnForegroundChanged: an open-app row opened between
+        // CloseAllOpenApps and the delete would be deleted out from under its id.
+        if (_disposed || !_trackingEnabled || _purging)
         {
             return;
         }
@@ -639,22 +647,36 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
     /// </summary>
     internal int PurgeRecordedActivity()
     {
-        CloseOpenSegment(DateTime.UtcNow);
-        CloseAllOpenApps(DateTime.UtcNow);
-        _store.Flush();
-
-        int deleted = _store.PurgeRecordedActivity();
-
-        lock (_rolloverLock)
+        // Set before the close, cleared in finally: between CloseOpenSegment/CloseAllOpenApps
+        // returning and the delete actually running, the foreground- and open-apps-changed
+        // handlers must not open a new segment or app row against an id the purge is about to
+        // delete -- that is the exact dangling-id defect the close-first ordering exists to
+        // prevent, just reintroduced by a race instead of by ordering. See OnForegroundChanged
+        // and OnOpenAppsChanged for the other half of this guard.
+        _purging = true;
+        try
         {
-            _keyPressCount = 0;
-            _mouseClickCount = 0;
-            _currentDateKey = TodayKey();
-        }
+            CloseOpenSegment(DateTime.UtcNow);
+            CloseAllOpenApps(DateTime.UtcNow);
+            _store.Flush();
 
-        // Force, so the UI shows zeroes now rather than at the next five-second tick.
-        PublishActivity(force: true);
-        return deleted;
+            int deleted = _store.PurgeRecordedActivity();
+
+            lock (_rolloverLock)
+            {
+                _keyPressCount = 0;
+                _mouseClickCount = 0;
+                _currentDateKey = TodayKey();
+            }
+
+            // Force, so the UI shows zeroes now rather than at the next five-second tick.
+            PublishActivity(force: true);
+            return deleted;
+        }
+        finally
+        {
+            _purging = false;
+        }
     }
 
     internal StorageReport MeasureStorage() =>
