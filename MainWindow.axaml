@@ -1214,7 +1214,7 @@
                                 <TextBlock Text="Check for updates" FontSize="13" />
                                 <TextBlock Classes="muted" FontSize="11"
                                            TextWrapping="Wrap"
-                                           Text="Off by default. When on, Daylane asks GitHub once per launch whether a newer release exists. Nothing else is sent." />
+                                           Text="Off by default. When on, Daylane asks GitHub once per launch whether a newer release exists. Only Daylane's version is sent." />
                             </StackPanel>
                             <ToggleSwitch Grid.Column="1"
                                           OnContent=""
@@ -1270,7 +1270,7 @@
                         </StackPanel>
                         <TextBlock Classes="muted" FontSize="11"
                                    TextWrapping="Wrap"
-                                   IsVisible="{Binding PurgeResultSummary}"
+                                   IsVisible="{Binding HasPurgeResult}"
                                    Text="{Binding PurgeResultSummary}" />
                     </StackPanel>
                 </Border>

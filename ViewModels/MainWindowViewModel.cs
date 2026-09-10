@@ -945,8 +945,11 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
             _purgeResultSummary = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HasPurgeResult));
         }
     }
+
+    public bool HasPurgeResult => !string.IsNullOrWhiteSpace(_purgeResultSummary);
 
     // Not a backing field: MeasureStorage's own DatabasePath is always exactly
     // _tracking.DatabasePath (StorageUsage.Measure is handed that very string), so this is
