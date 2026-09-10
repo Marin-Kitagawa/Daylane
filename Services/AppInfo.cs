@@ -13,6 +13,8 @@ internal static class AppInfo
     internal static string Version { get; } = ReadVersion();
 
     internal static string Author =>
+        // The SDK defaults $(Company) to the assembly name "Daylane" if no explicit value is set,
+        // so the attribute is never null. The fallback is a defensive measure that will not fire.
         typeof(AppInfo).Assembly.GetCustomAttribute<AssemblyCompanyAttribute>()?.Company
         ?? "Marin Kitagawa";
 

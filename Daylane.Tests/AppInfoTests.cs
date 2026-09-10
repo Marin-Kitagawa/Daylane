@@ -12,16 +12,16 @@ public class AppInfoTests
     }
 
     [Fact]
-    public void License_IsTheRepositorysOwnLicence()
+    public void License_IsExactlyTheRepositorysLicence()
     {
-        // AGPL-3.0, not the MIT of the project whose feature set this port follows.
-        Assert.Contains("AGPL", AppInfo.License, StringComparison.OrdinalIgnoreCase);
+        // The version is the legally meaningful part: AGPL-3.0 and AGPL-1.0 are different
+        // licences. Contains("AGPL") would accept either.
+        Assert.Equal("AGPL-3.0", AppInfo.License);
     }
 
-    [Theory]
-    [InlineData("https://github.com/Marin-Kitagawa/Daylane")]
-    public void RepositoryUrl_PointsAtThisFork(string expected)
-        => Assert.Equal(expected, AppInfo.RepositoryUrl);
+    [Fact]
+    public void RepositoryUrl_PointsAtThisFork()
+        => Assert.Equal("https://github.com/Marin-Kitagawa/Daylane", AppInfo.RepositoryUrl);
 
     [Fact]
     public void EveryLink_IsAnAbsoluteHttpsUrl()
@@ -38,6 +38,10 @@ public class AppInfoTests
     }
 
     [Fact]
-    public void Author_IsNotEmpty()
-        => Assert.False(string.IsNullOrWhiteSpace(AppInfo.Author));
+    public void Author_IsTheDeclaredAuthor()
+    {
+        // Pinned rather than merely non-empty: a wrong value here is a false attribution
+        // shown in the About panel, and changing it should be a deliberate edit.
+        Assert.Equal("Marin Kitagawa", AppInfo.Author);
+    }
 }
