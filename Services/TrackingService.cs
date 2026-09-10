@@ -497,6 +497,18 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
                     continue;
                 }
 
+                // Second _purging check, mirroring the one in SwitchSegment: the entry guard in
+                // OnOpenAppsChanged only declines work as of the moment the event arrived, and a
+                // thread can pass it while _purging is still false and then reach here after a
+                // purge has already closed everything and is mid-delete. The exposure here is a
+                // few instructions rather than an unbounded walk, but the shape of the race, and
+                // the reason a lone entry guard cannot close it, is the same. Not redundant --
+                // do not remove it as a "duplicate" of the entry guard.
+                if (_purging)
+                {
+                    break;
+                }
+
                 long id = _store.OpenOpenAppSegment(app, boundaryUtc);
                 _openAppStates[key] = new OpenAppState(id, app, boundaryUtc);
             }
@@ -616,6 +628,21 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
             // revisit (nothing re-triggers a pass once _lastAppliedIgnoreRules already matches
             // the new list).
             ForegroundApp stored = CapturePolicy.Apply(app, Settings.Current, out bool excluded);
+
+            // Second _purging check, this time inside the lock and immediately before the row is
+            // created. The entry guard in OnForegroundChanged only declines *new* work as of the
+            // moment the event arrived; the browser-host walk above is unbounded when a renderer
+            // is hung, so a thread can pass that guard while _purging is still false and then
+            // stall for the entire duration of a purge before reaching here. Without this second
+            // check, it would open a fresh row on the far side of the delete -- the dangling-id
+            // defect the close-first ordering exists to prevent, just arrived at via the walk
+            // instead of via ordinary scheduling. This check is not redundant with the entry
+            // guard for that reason; do not remove it as a "duplicate".
+            if (_purging)
+            {
+                return;
+            }
+
             long id = _store.OpenSegment(stored, openAt, excluded);
             Volatile.Write(ref _openSegment, new OpenSegmentState(id, stored, openAt));
             _currentAppName = stored.DisplayName;
