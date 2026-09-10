@@ -46,7 +46,7 @@ Open the **Settings** tab. Changes apply immediately — no restart.
 - **Startup** — Start with Windows, Show window on startup, Minimize to tray
 - **Privacy** — Record window titles, Record browser site (needs window titles on), Private keywords, Ignored windows — see [Data and privacy](#data-and-privacy)
 - **Updates** — Check for updates (off by default), Check now — see [Updates](#updates)
-- **Data** — Delete recorded activity: permanently deletes all recorded activity on this computer. Your settings are kept. The database file shrinks afterward, because the purge vacuums it.
+- **Data** — Delete recorded activity: permanently deletes all recorded activity on this computer. Your settings are kept. The database file shrinks afterward, because the purge vacuums the database and then checkpoints the write-ahead log.
 - **About** — Version, license, and links to the repository, issue tracker, license text, and Hindsight, the project Daylane's feature set is ported from
 
 Settings live in `daylane.db`. The old `config.ini` is read once on

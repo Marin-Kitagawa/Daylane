@@ -19,6 +19,12 @@ internal sealed record StorageReport(long? DatabaseBytes, long? RecordedRows, st
 /// </summary>
 internal static class StorageUsage
 {
+    // The three tables a user would recognise as "their recorded activity". Deliberately
+    // narrower than DailyStatsStore.PurgedTables, which also clears the derived caches
+    // (ProcessPaths, AppIcons) and the sync bookkeeping (SyncOutbox, SyncCursor) -- rows that
+    // are real but that nobody thinks of as history. That means a purge legitimately reports a
+    // larger number than "rows recorded" did, so the purge result says what it counted rather
+    // than leaving the difference looking like a bug.
     private static readonly string[] CountedTables =
         ["ActivitySegment", "OpenAppSegment", "DailyInput"];
 

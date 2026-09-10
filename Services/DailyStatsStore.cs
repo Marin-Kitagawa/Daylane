@@ -617,13 +617,22 @@ internal sealed class DailyStatsStore : IDisposable
     ];
 
     /// <summary>
-    /// Deletes all recorded activity and returns the number of rows removed.
+    /// Deletes all recorded activity and returns the number of rows removed. The count spans
+    /// every table in PurgedTables, which is a wider set than the three StorageUsage counts, so
+    /// the two numbers are expected to differ and the UI says which is which.
     ///
     /// One transaction, so a failure leaves the history intact rather than half-deleted. The
     /// VACUUM afterwards is not optional housekeeping: SQLite does not return freed pages to
     /// the filesystem on DELETE, so without it the file does not shrink and a user who just
     /// cleared a year of history sees the same number of megabytes and concludes it did not
     /// work.
+    ///
+    /// The checkpoint after it is just as load-bearing. Daylane runs in WAL mode, where VACUUM
+    /// rebuilds the database *into the WAL* rather than in place: the main file is not truncated
+    /// and the WAL is not reclaimed until a checkpoint runs. Measured on a seeded database,
+    /// VACUUM alone left main and WAL byte-for-byte identical (2,441,216 + 4,161,232 before and
+    /// after) and reported no error; wal_checkpoint(TRUNCATE) took the same database to
+    /// 155,648 + 0. Without it the purge frees nothing a user or StorageUsage can observe.
     /// </summary>
     internal int PurgeRecordedActivity()
     {
@@ -654,13 +663,28 @@ internal sealed class DailyStatsStore : IDisposable
             {
                 using var vacuum = new SqliteConnection(_connectionString);
                 vacuum.Open();
-                using var command = vacuum.CreateCommand();
-                command.CommandText = "VACUUM;";
-                command.ExecuteNonQuery();
+
+                using (var command = vacuum.CreateCommand())
+                {
+                    command.CommandText = "VACUUM;";
+                    command.ExecuteNonQuery();
+                }
+
+                // Same connection, immediately after: in WAL mode the VACUUM above wrote the
+                // rebuilt database into the WAL, so neither file has shrunk yet. TRUNCATE
+                // checkpoints the WAL back into the main file and then truncates the WAL to
+                // zero, which is what actually returns the bytes to the filesystem. Inside the
+                // same try on purpose -- a busy checkpoint is no more a failed purge than a
+                // failed VACUUM is.
+                using (var checkpoint = vacuum.CreateCommand())
+                {
+                    checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                    checkpoint.ExecuteNonQuery();
+                }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"VACUUM after purge failed: {ex.Message}");
+                Debug.WriteLine($"VACUUM/checkpoint after purge failed: {ex.Message}");
             }
 
             return deleted;
