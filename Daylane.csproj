@@ -9,6 +9,8 @@
     <AssemblyName>Daylane</AssemblyName>
     <RootNamespace>Daylane</RootNamespace>
     <Version>1.0.1</Version>
+    <Authors>Marin Kitagawa</Authors>
+    <Product>Daylane</Product>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
