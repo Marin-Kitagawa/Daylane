@@ -173,3 +173,33 @@ clicking are listed at the end of the sub-project 2 branch review; the highest-v
 check is a browser with **Record browser site** on, because a wrong vtable ordering in
 the hand-written UI Automation interop is swallowed by design and reports as "no host"
 rather than as an error.
+
+## Carried forward from sub-project 8 (2026-09-10)
+
+Findings the whole-branch review raised and I deliberately deferred rather than fixing in its single fix wave.
+Recorded here because the execution ledger is scratch and does not survive the branch.
+
+- **A busy WAL checkpoint is silent.** `DailyStatsStore.PurgeRecordedActivity` now runs
+  `PRAGMA wal_checkpoint(TRUNCATE)` after its `VACUUM`, which is what makes a purge actually return disk space.
+  But a *busy* checkpoint reports itself in the pragma's result row (`busy=1`), not as an exception, and the code
+  calls `ExecuteNonQuery()` and discards it. So the exact failure the checkpoint was added to eliminate —
+  reclaiming nothing, silently — remains reachable if another connection holds a read lock, and would log
+  nothing. Reading the first column and logging a non-zero value would close it.
+- **`_started` is read from a thread-pool thread without being `volatile`**, while `_trackingEnabled` and
+  `_purging` beside it are. Introduced by moving the purge off the UI thread.
+- **`Dispose()` can interleave with an in-flight purge.** The purge's `finally` would then call `Timer.Change`
+  on a disposed timer; the exception is caught, but the posted continuation may never run, leaving
+  `_purgeInFlight` set. Only reachable while the app is closing.
+- **`CancelPurgeCommand` is not guarded by `_purgeInFlight`**, so a cancel during a purge momentarily blanks the
+  "Deleting..." text before the result restores it. Cosmetic.
+- **`AppInfo.Version` and `AppVersion.Value` are two ways to read the same thing**, differing only in that
+  `AppInfo` strips a `+build` suffix. They agree today only because `IncludeSourceRevisionInInformationalVersion`
+  is false. The window title uses one and About the other.
+
+### A lesson worth keeping
+
+Two Criticals in this sub-project were defects in the **plan's premises**, not in any task's compliance with them.
+Every task implemented its brief correctly and the brief was wrong: `VACUUM` alone reclaims nothing in WAL mode,
+and clearing the segment state without re-priming the edge-triggered trackers stops recording entirely. Neither
+was reachable by a task-scoped review, and neither would have been caught by any gate the project had — the suite
+was green, the build was warning-free, and the code did exactly what it was told to do.

@@ -34,7 +34,8 @@ Two further notes from the survey, both acted on:
   Daylane: the data is deleted from this machine and is not recoverable.
 - Hindsight's purge gained a `VACUUM` only in v0.6.7, because without it "clear data" left 20+ MB behind and
   looked broken. Daylane does it from the start, and for the same reason: SQLite does not return freed pages
-  to the filesystem on `DELETE`, so a purge without `VACUUM` reports no space reclaimed.
+  to the filesystem on `DELETE`, so a purge without `VACUUM` reports no space reclaimed. That reasoning is true
+  but was incomplete — in WAL mode a `VACUUM` alone reclaims nothing either. See §4.1 step 3.
 
 ## 3. Update checking
 
@@ -45,10 +46,12 @@ Two new keys on `DaylaneSettings`, both persisted in the existing single-row JSO
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `CheckForUpdates` | `bool` | **`false`** | When false, no update code ever touches the network |
-| `LastSeenVersion` | `string?` | `null` | The newest tag the user has already been shown, so the banner does not nag |
 
-`LastSeenVersion` is **not** a last-checked timestamp. It records what the user has seen, not when we looked —
-the only thing needed to avoid re-announcing the same release, and it carries no clock-skew failure modes.
+**Superseded during implementation: `LastSeenVersion` was specified here and then removed before merge.** Its
+premise was that suppression stops a *banner* from nagging — but Daylane has no banner, only a Settings panel the
+user must deliberately open. Suppressing there is withholding, not politeness, and the suppressed case rendered as
+"Daylane <version> is up to date." with the download link hidden, while a newer release existed. The whole-branch
+review caught it; the field, its write and the suppression branch are gone.
 
 ### 3.2 Behaviour
 
@@ -105,7 +108,11 @@ expect to also lose their preferences.
    an id for, and the next flush would silently write counts against a row that no longer exists.
 2. Delete inside one transaction, under the store's existing `_dbWriteLock`, so a concurrent capture cannot
    interleave.
-3. `VACUUM` **after** committing, in a separate command. SQLite forbids `VACUUM` inside a transaction.
+3. `VACUUM` **after** committing, in a separate command — SQLite forbids `VACUUM` inside a transaction — and
+   then `PRAGMA wal_checkpoint(TRUNCATE)`. **The checkpoint was missing from this spec and was added after the
+   whole-branch review measured the consequence.** Daylane runs in WAL mode, where `VACUUM` rebuilds the database
+   INTO the WAL: without a checkpoint the main file is never truncated and the footprint GROWS. Measured on a real
+   store: 1,245,184 bytes before a purge, 1,529,304 after with `VACUUM` alone, 188,416 with the checkpoint.
 4. Reset the tracker's in-memory counters and republish, so the UI shows zero rather than yesterday's totals
    until the next tick.
 
@@ -174,7 +181,6 @@ avoid is a test whose assertion has no reader but itself.
 
 - Version comparison: newer, older, equal, `v`-prefixed, malformed, prerelease, draft.
 - Release-JSON parsing: well-formed, missing `tag_name`, empty body, non-JSON.
-- `LastSeenVersion` suppression: the same release is not announced twice; a newer one is.
 - **Default-off proof:** with default settings, no update code path constructs an HTTP request. This is the
   test a reviewer should be able to point at, and it must fail if the default flips.
 - Purge: capture tables are emptied; `SettingsStore` and `Devices` are **not**; an open segment is closed
