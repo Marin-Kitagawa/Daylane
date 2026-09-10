@@ -1,11 +1,11 @@
 # Daylane
 
-[![License](https://img.shields.io/github/license/mirbyte/Daylane?color=58C090)](https://raw.githubusercontent.com/mirbyte/Daylane/main/LICENSE)
-![Size](https://img.shields.io/github/repo-size/mirbyte/Daylane?label=size&color=2F9E6B)
-[![Download Count](https://img.shields.io/github/downloads/mirbyte/Daylane/total?color=58C090)](https://github.com/mirbyte/Daylane/releases/latest)
-[![Latest Release](https://img.shields.io/github/release/mirbyte/Daylane.svg?color=58C090)](https://github.com/mirbyte/Daylane/releases/latest)
+[![License](https://img.shields.io/github/license/Marin-Kitagawa/Daylane?color=58C090)](https://raw.githubusercontent.com/Marin-Kitagawa/Daylane/main/LICENSE)
+![Size](https://img.shields.io/github/repo-size/Marin-Kitagawa/Daylane?label=size&color=2F9E6B)
+[![Download Count](https://img.shields.io/github/downloads/Marin-Kitagawa/Daylane/total?color=58C090)](https://github.com/Marin-Kitagawa/Daylane/releases/latest)
+[![Latest Release](https://img.shields.io/github/release/Marin-Kitagawa/Daylane.svg?color=58C090)](https://github.com/Marin-Kitagawa/Daylane/releases/latest)
 
-Windows activity tracker. Records which apps you used, when you were away, and how much you typed or clicked. Everything stays on disk next to the exe. No accounts, no cloud.
+Windows activity tracker. Records which apps you used, when you were away, and how much you typed or clicked. Everything stays on disk next to the exe. No accounts, no cloud — the optional update check is the one exception, off by default; see [Updates](#updates).
 
 Windows 10/11 x64. Binaries: [Releases](../../releases). Unzip and run `Daylane.exe`.
 
@@ -45,10 +45,29 @@ Open the **Settings** tab. Changes apply immediately — no restart.
 - **Keep history for (days)** — delete records older than N days; defaults to `0`, which keeps everything until you opt in
 - **Startup** — Start with Windows, Show window on startup, Minimize to tray
 - **Privacy** — Record window titles, Record browser site (needs window titles on), Private keywords, Ignored windows — see [Data and privacy](#data-and-privacy)
+- **Updates** — Check for updates (off by default), Check now — see [Updates](#updates)
+- **Data** — Delete recorded activity: permanently deletes all recorded activity on this computer. Your settings are kept. The database file shrinks afterward, because the purge vacuums it.
+- **About** — Version, license, and links to the repository, issue tracker, license text, and Hindsight, the project Daylane's feature set is ported from
 
 Settings live in `daylane.db`. The old `config.ini` is read once on
 first launch after upgrading, to carry your `threshold_minutes` across;
 after that the file is ignored and can be deleted.
+
+## Updates
+
+**Check for updates** is **off by default**. A default install contacts nothing.
+
+When turned on, Daylane sends one unauthenticated HTTPS `GET` to
+`https://api.github.com/repos/Marin-Kitagawa/Daylane/releases/latest`, once per launch. The
+request carries a `User-Agent` of `Daylane/<version>` and an `Accept` header, and nothing else —
+no account, no token, no identifier, no telemetry. GitHub necessarily observes the requesting IP,
+as it would for any HTTPS request, and that version string.
+
+**Check now** performs a single check immediately, even while the switch is off — pressing a
+button is an explicit act, distinct from the automatic once-per-launch check the switch controls.
+
+Daylane never downloads or installs an update. If a newer release is found, it shows a link that
+opens the release page in your browser; nothing is fetched beyond the version check itself.
 
 ## Build
 
