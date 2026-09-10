@@ -601,6 +601,72 @@ internal sealed class DailyStatsStore : IDisposable
         }
     }
 
+    // Recorded activity and the caches derived from it. Deliberately NOT SettingsStore,
+    // Devices, AuthState, Categories, SuperCategories, AppGroups or AppGroupMembers: a user
+    // clearing their history does not expect to lose their preferences, this device's
+    // identity, or a taxonomy they built by hand.
+    private static readonly string[] PurgedTables =
+    [
+        "ActivitySegment",
+        "OpenAppSegment",
+        "DailyInput",
+        "ProcessPaths",
+        "AppIcons",
+        "SyncOutbox",
+        "SyncCursor"
+    ];
+
+    /// <summary>
+    /// Deletes all recorded activity and returns the number of rows removed.
+    ///
+    /// One transaction, so a failure leaves the history intact rather than half-deleted. The
+    /// VACUUM afterwards is not optional housekeeping: SQLite does not return freed pages to
+    /// the filesystem on DELETE, so without it the file does not shrink and a user who just
+    /// cleared a year of history sees the same number of megabytes and concludes it did not
+    /// work.
+    /// </summary>
+    internal int PurgeRecordedActivity()
+    {
+        lock (_dbWriteLock)
+        {
+            int deleted = 0;
+
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                using var transaction = connection.BeginTransaction();
+
+                foreach (string table in PurgedTables)
+                {
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    command.CommandText = $"DELETE FROM {table};";
+                    deleted += command.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+            }
+
+            // Separate connection and no transaction: SQLite rejects VACUUM inside one. A
+            // failure here is not a failed purge -- the rows are already gone -- so it must
+            // not throw away the count or surface as an error.
+            try
+            {
+                using var vacuum = new SqliteConnection(_connectionString);
+                vacuum.Open();
+                using var command = vacuum.CreateCommand();
+                command.CommandText = "VACUUM;";
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"VACUUM after purge failed: {ex.Message}");
+            }
+
+            return deleted;
+        }
+    }
+
     /// <summary>
     /// Re-evaluates every activity row against the current rules. Rule edits are rare, so a
     /// full-table pass is the right trade against carrying rule evaluation into every read.
