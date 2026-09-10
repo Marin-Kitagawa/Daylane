@@ -4,7 +4,10 @@ namespace Daylane.Services;
 
 /// <param name="DatabaseBytes">Null when the files cannot be measured. Reporting 0 for an
 /// unreadable file would be a claim; null is the truth, and the UI says "unavailable".</param>
-internal sealed record StorageReport(long? DatabaseBytes, long RecordedRows, string DatabasePath);
+/// <param name="RecordedRows">Null when the row count cannot be read. Reporting 0 for a query
+/// that failed would be a claim -- indistinguishable from a genuinely empty database -- so null
+/// is the truth, and the UI says "unavailable"; a real 0 still means confirmed empty.</param>
+internal sealed record StorageReport(long? DatabaseBytes, long? RecordedRows, string DatabasePath);
 
 /// <summary>
 /// How much disk the database occupies and how many rows it holds.
@@ -51,7 +54,7 @@ internal static class StorageUsage
         }
     }
 
-    private static long CountRows(string connectionString)
+    private static long? CountRows(string connectionString)
     {
         try
         {
@@ -70,7 +73,9 @@ internal static class StorageUsage
         }
         catch (Exception)
         {
-            return 0;
+            // Cannot open or query the database. Unknown, not zero -- a real empty database
+            // still reports a real 0.
+            return null;
         }
     }
 }

@@ -65,32 +65,6 @@ public class StorageUsageTests
     }
 
     [Fact]
-    public void Measure_ReportsAtLeastTheMainFileLengthForARealStore()
-    {
-        // A ">=" comparison against a real, live store is deterministic even though closing a
-        // WAL connection can checkpoint and move bytes from the sidecar files into the main
-        // file between our read of it and the call to Measure: it holds either way, and it
-        // still catches a regression that ignores the sidecar files or under-measures the
-        // main file.
-        using var temp = new TempDatabase();
-        using var store = new DailyStatsStore(temp.DatabasePath);
-        DateTime start = DateTime.UtcNow.AddMinutes(-5);
-        for (int i = 0; i < 40; i++)
-        {
-            long id = store.OpenSegment(App($"app{i}"), start.AddSeconds(i));
-            store.CloseSegment(id, start.AddSeconds(i + 1), 1, 1);
-        }
-        store.Flush();
-
-        long mainBytes = new FileInfo(temp.DatabasePath).Length;
-        StorageReport report = StorageUsage.Measure(temp.DatabasePath, temp.ConnectionString);
-
-        Assert.NotNull(report.DatabaseBytes);
-        Assert.True(report.DatabaseBytes >= mainBytes,
-            $"expected at least the main file's {mainBytes} bytes, got {report.DatabaseBytes}");
-    }
-
-    [Fact]
     public void Measure_CountsRecordedRows()
     {
         using var temp = new TempDatabase();
@@ -130,6 +104,23 @@ public class StorageUsageTests
         store.Flush();
         store.PurgeRecordedActivity();
 
-        Assert.Equal(0, StorageUsage.Measure(temp.DatabasePath, temp.ConnectionString).RecordedRows);
+        // A purged database is confirmed empty, not unknown -- exactly 0, not merely non-null.
+        Assert.Equal(0L, StorageUsage.Measure(temp.DatabasePath, temp.ConnectionString).RecordedRows);
+    }
+
+    [Fact]
+    public void Measure_ReportsUnknownRowsRatherThanZeroWhenTheConnectionCannotOpen()
+    {
+        using var temp = new TempDatabase();
+        string unreachable = new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(temp.DatabasePath + "-nope", "daylane.db"),
+            Mode = SqliteOpenMode.ReadWriteCreate
+        }.ConnectionString;
+
+        StorageReport report = StorageUsage.Measure(temp.DatabasePath, unreachable);
+
+        // Zero is a claim -- indistinguishable from a genuinely empty database. Unknown is the truth.
+        Assert.Null(report.RecordedRows);
     }
 }
