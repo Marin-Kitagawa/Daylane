@@ -1205,6 +1205,112 @@
                         </StackPanel>
                     </StackPanel>
                 </Border>
+
+                <Border Classes="panel" Padding="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="Updates" FontSize="13" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Check for updates" FontSize="13" />
+                                <TextBlock Classes="muted" FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Text="Off by default. When on, Daylane asks GitHub once per launch whether a newer release exists. Nothing else is sent." />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          IsChecked="{Binding CheckForUpdates}" />
+                        </Grid>
+                        <TextBlock Text="{Binding UpdateStatus}" FontSize="13" />
+                        <StackPanel Spacing="6">
+                            <Button Classes="secondary"
+                                    Content="Check now"
+                                    Command="{Binding CheckForUpdatesCommand}" />
+                            <TextBlock Classes="muted" FontSize="11"
+                                       Text="Checks once, even when the switch is off." />
+                        </StackPanel>
+                        <Button Classes="secondary"
+                                Content="Download"
+                                Command="{Binding OpenUpdateLinkCommand}"
+                                IsVisible="{Binding HasUpdateLink}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="panel" Padding="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="Data" FontSize="13" FontWeight="SemiBold" />
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="{Binding StorageSummary}" FontSize="13" />
+                            <TextBlock Text="{Binding RecordedRowsSummary}" FontSize="13" />
+                        </StackPanel>
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding DatabasePathDisplay}" FontSize="13" TextWrapping="Wrap" />
+                            <Button Classes="secondary"
+                                    Content="Open folder"
+                                    Command="{Binding OpenDataFolderCommand}" />
+                        </StackPanel>
+                        <TextBlock Classes="muted" FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Text="Daylane prunes automatically when a retention window is set, and keeps everything when it is not." />
+                        <Button Classes="secondary"
+                                Content="Delete recorded activity"
+                                Command="{Binding PurgeDataCommand}" />
+                        <StackPanel Spacing="8" IsVisible="{Binding ConfirmPurgeVisible}">
+                            <TextBlock FontSize="13"
+                                       TextWrapping="Wrap"
+                                       Text="This permanently deletes all recorded activity on this computer. It cannot be undone. Your settings are kept." />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Classes="secondary"
+                                        Content="Delete everything"
+                                        Command="{Binding ConfirmPurgeCommand}" />
+                                <Button Classes="secondary"
+                                        Content="Cancel"
+                                        Command="{Binding CancelPurgeCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Classes="muted" FontSize="11"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding PurgeResultSummary}"
+                                   Text="{Binding PurgeResultSummary}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="panel" Padding="18">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="About" FontSize="13" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Version" FontSize="13" />
+                            <TextBlock Grid.Column="1" Text="{Binding AppVersion}" FontSize="13" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Author" FontSize="13" />
+                            <TextBlock Grid.Column="1" Text="{Binding AppAuthor}" FontSize="13" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="License" FontSize="13" />
+                            <TextBlock Grid.Column="1" Text="{Binding AppLicense}" FontSize="13" />
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Classes="secondary"
+                                    Content="Repository"
+                                    Command="{Binding OpenRepositoryCommand}" />
+                            <Button Classes="secondary"
+                                    Content="Report an issue"
+                                    Command="{Binding OpenIssuesCommand}" />
+                            <Button Classes="secondary"
+                                    Content="License"
+                                    Command="{Binding OpenLicenseCommand}" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Classes="muted" FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Text="Daylane's feature set follows Hindsight, the project this is a port of." />
+                            <Button Classes="secondary"
+                                    Content="View Hindsight"
+                                    Command="{Binding OpenUpstreamProjectCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>
