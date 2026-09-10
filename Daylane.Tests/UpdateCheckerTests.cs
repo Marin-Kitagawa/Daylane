@@ -66,38 +66,22 @@ public class UpdateCheckerTests
     }
 
     [Fact]
-    public async Task AlreadySeenRelease_ReportsUpToDateRatherThanNagging()
+    public async Task TheSameReleaseIsReportedOnEveryCheck_NotOnlyTheFirst()
     {
-        var settings = new DaylaneSettings() with { CheckForUpdates = true, LastSeenVersion = "v2.0.0" };
+        // Replaces the three LastSeenVersion suppression tests. Suppression was there to keep a
+        // banner from nagging and Daylane has no banner -- the only place a release is named is
+        // a Settings panel the user opens on purpose, usually *because* they want the link. The
+        // suppressed answer was "Daylane 1.0.1 is up to date." with the Download button hidden,
+        // which is not restraint, it is a false statement. Two identical checks, same answer.
+        var settings = new DaylaneSettings() with { CheckForUpdates = true };
         var checker = new UpdateChecker(_ => Task.FromResult<string?>(NewerJson), "1.0.1");
 
-        UpdateCheckResult result = await checker.CheckAsync(settings, userRequested: false, CancellationToken.None);
+        UpdateCheckResult first = await checker.CheckAsync(settings, userRequested: false, CancellationToken.None);
+        UpdateCheckResult second = await checker.CheckAsync(settings, userRequested: false, CancellationToken.None);
 
-        Assert.Equal(UpdateCheckOutcome.UpToDate, result.Outcome);
-    }
-
-    [Fact]
-    public async Task AReleaseNewerThanTheOneAlreadySeen_IsStillReported()
-    {
-        // Suppression must not become "never tell me again".
-        var settings = new DaylaneSettings() with { CheckForUpdates = true, LastSeenVersion = "v1.5.0" };
-        var checker = new UpdateChecker(_ => Task.FromResult<string?>(NewerJson), "1.0.1");
-
-        UpdateCheckResult result = await checker.CheckAsync(settings, userRequested: false, CancellationToken.None);
-
-        Assert.Equal(UpdateCheckOutcome.UpdateAvailable, result.Outcome);
-    }
-
-    [Fact]
-    public async Task AUserRequestedCheckIgnoresSuppression()
-    {
-        // If you press the button, you get the answer, even about a release you dismissed.
-        var settings = new DaylaneSettings() with { CheckForUpdates = true, LastSeenVersion = "v2.0.0" };
-        var checker = new UpdateChecker(_ => Task.FromResult<string?>(NewerJson), "1.0.1");
-
-        UpdateCheckResult result = await checker.CheckAsync(settings, userRequested: true, CancellationToken.None);
-
-        Assert.Equal(UpdateCheckOutcome.UpdateAvailable, result.Outcome);
+        Assert.Equal(UpdateCheckOutcome.UpdateAvailable, first.Outcome);
+        Assert.Equal(UpdateCheckOutcome.UpdateAvailable, second.Outcome);
+        Assert.Equal("https://example.com/r/2", second.Release!.HtmlUrl);
     }
 
     [Fact]

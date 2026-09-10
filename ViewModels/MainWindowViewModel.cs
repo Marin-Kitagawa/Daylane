@@ -1124,7 +1124,6 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
                 case UpdateCheckOutcome.UpdateAvailable when result.Release is { } release:
                     UpdateStatus = $"Version {release.TagName} is available. You have {AppInfo.Version}.";
                     UpdateLinkUrl = release.HtmlUrl;
-                    _settings.Update(s => s with { LastSeenVersion = release.TagName });
                     break;
 
                 case UpdateCheckOutcome.UpToDate:

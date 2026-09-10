@@ -26,7 +26,7 @@ internal sealed class UpdateChecker(
     string currentVersion)
 {
     /// <param name="userRequested">True when the user pressed Check now. An explicit act, so it
-    /// runs regardless of the setting and ignores the already-seen suppression.</param>
+    /// runs regardless of the setting.</param>
     internal async Task<UpdateCheckResult> CheckAsync(
         DaylaneSettings settings,
         bool userRequested,
@@ -60,15 +60,11 @@ internal sealed class UpdateChecker(
             return new UpdateCheckResult(UpdateCheckOutcome.UpToDate);
         }
 
-        // A release the user has already been shown is not news. Compared as a version, not by
-        // string equality, so dismissing v1.5.0 does not hide v2.0.0.
-        if (!userRequested
-            && settings.LastSeenVersion is { } seen
-            && !VersionCompare.IsNewer(release.TagName, seen))
-        {
-            return new UpdateCheckResult(UpdateCheckOutcome.UpToDate);
-        }
-
+        // Deliberately no already-seen suppression. Suppression exists to stop a banner from
+        // nagging, and Daylane has no banner: the only place a release is ever mentioned is a
+        // Settings panel the user has to open on purpose. Suppressing there would answer a user
+        // who opened Settings specifically to fetch the download link with "you are up to date"
+        // and no link -- withholding, not restraint.
         return new UpdateCheckResult(UpdateCheckOutcome.UpdateAvailable, release);
     }
 }

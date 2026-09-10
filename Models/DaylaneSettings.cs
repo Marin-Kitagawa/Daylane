@@ -64,13 +64,7 @@ internal sealed record DaylaneSettings(
     /// <summary>Off by default, and the only thing that permits any network access at all.
     /// While false, no update code path constructs an HTTP request.</summary>
     [property: JsonPropertyName("checkForUpdates")]
-    bool CheckForUpdates = false,
-
-    /// <summary>The newest release tag the user has already been shown, so the same release is
-    /// not announced twice. Deliberately not a last-checked timestamp: this is the only state
-    /// needed to avoid nagging, and it carries no clock-skew failure modes.</summary>
-    [property: JsonPropertyName("lastSeenVersion")]
-    string? LastSeenVersion = null)
+    bool CheckForUpdates = false)
 {
     public const string AppearanceSystem = "system";
     public const string AppearanceLight = "light";
