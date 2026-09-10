@@ -162,7 +162,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         AddIgnoreRuleCommand = new RelayCommand(AddIgnoreRule);
         RemoveIgnoreRuleCommand = new RelayCommand<IgnoreRule>(RemoveIgnoreRule);
         CheckForUpdatesCommand = new RelayCommand(() => _ = RunUpdateCheckAsync(userRequested: true));
-        OpenUpdateLinkCommand = new RelayCommand(() => OpenUrl(_updateLinkUrl));
+        OpenUpdateLinkCommand = new RelayCommand(() => OpenWebUrl(_updateLinkUrl));
         PurgeDataCommand = new RelayCommand(() =>
         {
             PurgeResultSummary = "";
@@ -174,10 +174,10 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             PurgeResultSummary = "";
             ConfirmPurgeVisible = false;
         });
-        OpenRepositoryCommand = new RelayCommand(() => OpenUrl(AppInfo.RepositoryUrl));
-        OpenIssuesCommand = new RelayCommand(() => OpenUrl(AppInfo.IssuesUrl));
-        OpenLicenseCommand = new RelayCommand(() => OpenUrl(AppInfo.LicenseUrl));
-        OpenUpstreamProjectCommand = new RelayCommand(() => OpenUrl(AppInfo.UpstreamProjectUrl));
+        OpenRepositoryCommand = new RelayCommand(() => OpenWebUrl(AppInfo.RepositoryUrl));
+        OpenIssuesCommand = new RelayCommand(() => OpenWebUrl(AppInfo.IssuesUrl));
+        OpenLicenseCommand = new RelayCommand(() => OpenWebUrl(AppInfo.LicenseUrl));
+        OpenUpstreamProjectCommand = new RelayCommand(() => OpenWebUrl(AppInfo.UpstreamProjectUrl));
         RefreshDay();
         RefreshInsights();
 
@@ -1146,23 +1146,47 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     /// has only a finally -- so a SqliteException (locked file, disk full) propagates all the
     /// way up here, and this is the single most destructive action in the product. Catching it
     /// is what stands between that and an unhandled exception on the UI thread from
-    /// RelayCommand.Execute. The finally clears ConfirmPurgeVisible either way, so a failed
-    /// purge can never strand the confirmation panel visible.
+    /// RelayCommand.Execute.
+    ///
+    /// The purge and the post-purge refreshes are caught separately, on purpose: if the purge
+    /// itself succeeds but a refresh afterward throws, a single shared try/catch around both
+    /// would report "Could not delete recorded activity" -- telling the user nothing was deleted
+    /// when in fact it was, which is worse than the crash it replaces because it is silent and
+    /// wrong rather than loud. Splitting them means PurgeResultSummary, once set to a genuine
+    /// success by the purge itself, can never be overwritten by an unrelated refresh failure.
+    /// The finally clears ConfirmPurgeVisible on every path, so a failed purge (or a purge whose
+    /// refresh failed) can never strand the confirmation panel visible.
     /// </summary>
     private void ConfirmPurge()
     {
         try
         {
-            int deleted = _tracking.PurgeRecordedActivity();
-            PurgeResultSummary = $"Deleted {deleted:N0} rows.";
-            RefreshDay();
-            RefreshInsights();
-            RefreshStorage();
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Purge failed: {ex.Message}");
-            PurgeResultSummary = "Could not delete recorded activity.";
+            try
+            {
+                int deleted = _tracking.PurgeRecordedActivity();
+                PurgeResultSummary = $"Deleted {deleted:N0} rows.";
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Purge failed: {ex.Message}");
+                PurgeResultSummary = "Could not delete recorded activity.";
+                return;
+            }
+
+            try
+            {
+                RefreshDay();
+                RefreshInsights();
+                RefreshStorage();
+            }
+            catch (Exception ex)
+            {
+                // The purge itself already succeeded and PurgeResultSummary already reflects
+                // that -- a refresh failure here must not overwrite it with a false "nothing was
+                // deleted" message. The panels affected simply keep showing pre-purge data until
+                // the next refresh (e.g. the next Settings-tab selection) succeeds.
+                Debug.WriteLine($"Post-purge refresh failed: {ex.Message}");
+            }
         }
         finally
         {
@@ -2031,43 +2055,58 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     private static void OpenDataFolder(string databasePath) =>
-        OpenUrl(Path.GetDirectoryName(databasePath) ?? AppContext.BaseDirectory);
+        OpenLocalDirectory(Path.GetDirectoryName(databasePath) ?? AppContext.BaseDirectory);
 
     /// <summary>
-    /// Same shell-open pattern used for the data folder, generalized to any URL: a release page,
-    /// the repository, the issue tracker, the license or the upstream project. No-ops on a null
-    /// or blank url so a stale or not-yet-set UpdateLinkUrl can never launch anything.
+    /// Opens a release page, the repository, the issue tracker, the license or the upstream
+    /// project. No-ops on a null, blank, or non-http(s) url.
     ///
-    /// One of these five call sites (OpenDataFolder) passes a local directory, not a URL, and
-    /// the other four pass a string this process never chose -- release.HtmlUrl comes from the
-    /// GitHub release JSON, and ReleaseFeed.Parse only checks that it is non-blank. UseShellExecute
-    /// = true on an arbitrary string can launch a UNC path or a non-web scheme, so a remote-supplied
-    /// value must clear an explicit allowlist: either it names a directory that already exists on
-    /// this machine, or it parses as an absolute http/https URL. Anything else -- file:, a bare UNC
-    /// path that is not an existing directory, javascript:, and so on -- is silently refused.
+    /// This argument may come from the network -- OpenUpdateLinkCommand feeds it release.HtmlUrl,
+    /// taken from the GitHub release JSON, and ReleaseFeed.Parse only checks that it is
+    /// non-blank -- so the check here is deliberately narrow: an absolute http/https URL, and
+    /// nothing else. In particular, this must never also accept an existing local directory
+    /// (Directory.Exists("\\host\share") can be true for a reachable UNC path regardless of
+    /// scheme): a combined gate would let a remote-supplied string reach the filesystem branch
+    /// meant only for OpenLocalDirectory's caller. Keep the two gates separate even if that looks
+    /// like duplication -- it is the one place doing exactly the check its own caller needs.
     /// </summary>
-    private static void OpenUrl(string? url)
+    private static void OpenWebUrl(string? url)
     {
         if (string.IsNullOrWhiteSpace(url))
         {
             return;
         }
 
-        bool isExistingDirectory = Directory.Exists(url);
-        bool isWebUrl = Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed)
-            && parsed.Scheme is "http" or "https";
-
-        if (!isExistingDirectory && !isWebUrl)
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed) || parsed.Scheme is not ("http" or "https"))
         {
             return;
         }
 
+        StartShellProcess(url);
+    }
+
+    /// <summary>
+    /// Opens a directory that already exists on this machine. The only caller is OpenDataFolder,
+    /// whose argument is derived from _tracking.DatabasePath -- a path this process controls, not
+    /// one supplied by a remote party -- so this has no scheme check and must never be given a
+    /// value from a network response. See OpenWebUrl for why the two gates are not merged.
+    /// </summary>
+    private static void OpenLocalDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            return;
+        }
+
+        StartShellProcess(path);
+    }
+
+    private static void StartShellProcess(string target) =>
         Process.Start(new ProcessStartInfo
         {
-            FileName = url,
+            FileName = target,
             UseShellExecute = true
         });
-    }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
