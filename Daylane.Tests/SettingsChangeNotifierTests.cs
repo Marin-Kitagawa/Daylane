@@ -32,8 +32,17 @@ public class SettingsChangeNotifierTests
                 "RecordWindowTitles",
                 "RecordBrowserHost",
                 "CanRecordBrowserHost",
-                "CanIgnoreByTitleKeyword"
+                "CanIgnoreByTitleKeyword",
+                "CheckForUpdates"
             ],
             raised);
+    }
+
+    [Fact]
+    public void Properties_IncludeTheUpdateCheckToggle()
+    {
+        // A settings change from any writer must refresh this control, not only a change made
+        // by this view model's own setter.
+        Assert.Contains(nameof(MainWindowViewModel.CheckForUpdates), SettingsChangeNotifier.Properties);
     }
 }

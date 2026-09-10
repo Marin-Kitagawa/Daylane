@@ -103,6 +103,11 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _searchQuery = "";
     private readonly ObservableCollection<TitleSearchItemViewModel> _searchResults = [];
     private TitleSearchItemViewModel? _selectedSearchItem;
+    private string _updateStatus = "Automatic checks are off.";
+    private string? _updateLinkUrl;
+    private bool _confirmPurgeVisible;
+    private string _storageSummary = "Calculating…";
+    private string _recordedRowsSummary = "Calculating…";
 
     // Debounces SearchQuery: without it, every keystroke would run SearchTitles synchronously
     // against _dbWriteLock, which the background writer also takes.
@@ -155,8 +160,24 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         RemovePrivacyKeywordCommand = new RelayCommand<string>(RemovePrivacyKeyword);
         AddIgnoreRuleCommand = new RelayCommand(AddIgnoreRule);
         RemoveIgnoreRuleCommand = new RelayCommand<IgnoreRule>(RemoveIgnoreRule);
+        CheckForUpdatesCommand = new RelayCommand(() => _ = RunUpdateCheckAsync(userRequested: true));
+        OpenUpdateLinkCommand = new RelayCommand(() => OpenUrl(_updateLinkUrl));
+        PurgeDataCommand = new RelayCommand(() => ConfirmPurgeVisible = true);
+        ConfirmPurgeCommand = new RelayCommand(ConfirmPurge);
+        CancelPurgeCommand = new RelayCommand(() => ConfirmPurgeVisible = false);
+        OpenRepositoryCommand = new RelayCommand(() => OpenUrl(AppInfo.RepositoryUrl));
+        OpenIssuesCommand = new RelayCommand(() => OpenUrl(AppInfo.IssuesUrl));
+        OpenLicenseCommand = new RelayCommand(() => OpenUrl(AppInfo.LicenseUrl));
+        OpenUpstreamProjectCommand = new RelayCommand(() => OpenUrl(AppInfo.UpstreamProjectUrl));
         RefreshDay();
         RefreshInsights();
+
+        // Fire-and-forget on purpose: an update check must never delay the window appearing,
+        // and its failure is already a no-op. Guarded so a default install makes no request.
+        if (_settings.Current.CheckForUpdates)
+        {
+            _ = RunUpdateCheckAsync(userRequested: false);
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -525,6 +546,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             {
                 RefreshInsights();
             }
+            else if (value == AppTab.Settings)
+            {
+                // Measured only when the tab is actually looked at, not on a timer -- two stat
+                // calls behind a tab nobody is viewing would be pure waste.
+                RefreshStorage();
+            }
         }
     }
 
@@ -799,6 +826,107 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool CheckForUpdates
+    {
+        get => _settings.Current.CheckForUpdates;
+        set
+        {
+            if (_settings.Current.CheckForUpdates == value)
+            {
+                return;
+            }
+
+            _settings.Update(s => s with { CheckForUpdates = value });
+            OnPropertyChanged();
+        }
+    }
+
+    public string UpdateStatus
+    {
+        get => _updateStatus;
+        private set
+        {
+            if (_updateStatus == value)
+            {
+                return;
+            }
+
+            _updateStatus = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string? UpdateLinkUrl
+    {
+        get => _updateLinkUrl;
+        private set
+        {
+            if (_updateLinkUrl == value)
+            {
+                return;
+            }
+
+            _updateLinkUrl = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasUpdateLink));
+        }
+    }
+
+    public bool HasUpdateLink => !string.IsNullOrWhiteSpace(_updateLinkUrl);
+
+    public bool ConfirmPurgeVisible
+    {
+        get => _confirmPurgeVisible;
+        private set
+        {
+            if (_confirmPurgeVisible == value)
+            {
+                return;
+            }
+
+            _confirmPurgeVisible = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StorageSummary
+    {
+        get => _storageSummary;
+        private set
+        {
+            if (_storageSummary == value)
+            {
+                return;
+            }
+
+            _storageSummary = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string RecordedRowsSummary
+    {
+        get => _recordedRowsSummary;
+        private set
+        {
+            if (_recordedRowsSummary == value)
+            {
+                return;
+            }
+
+            _recordedRowsSummary = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string DatabasePathDisplay { get; private set; } = "";
+
+    public string AppVersion => AppInfo.Version;
+
+    public string AppAuthor => AppInfo.Author;
+
+    public string AppLicense => AppInfo.License;
+
     public ICommand OpenDataFolderCommand { get; }
 
     public ICommand SelectDayCommand { get; }
@@ -832,6 +960,24 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand AddIgnoreRuleCommand { get; }
 
     public ICommand RemoveIgnoreRuleCommand { get; }
+
+    public ICommand CheckForUpdatesCommand { get; }
+
+    public ICommand OpenUpdateLinkCommand { get; }
+
+    public ICommand PurgeDataCommand { get; }
+
+    public ICommand ConfirmPurgeCommand { get; }
+
+    public ICommand CancelPurgeCommand { get; }
+
+    public ICommand OpenRepositoryCommand { get; }
+
+    public ICommand OpenIssuesCommand { get; }
+
+    public ICommand OpenLicenseCommand { get; }
+
+    public ICommand OpenUpstreamProjectCommand { get; }
 
     private void AddPrivacyKeyword()
     {
@@ -888,6 +1034,102 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         _ignoreRules.Remove(rule);
         _settings.Update(s => s with { IgnoreRules = _ignoreRules.ToList() });
+    }
+
+    /// <summary>
+    /// Runs an update check and applies its result.
+    ///
+    /// This can be reached two ways: fire-and-forget from the constructor (no guaranteed
+    /// synchronization context to resume on) and from CheckForUpdatesCommand (a UI-thread call,
+    /// but the same method must be safe from both callers). ConfigureAwait(false) is used
+    /// deliberately -- not because the continuation's thread doesn't matter, but because this
+    /// code does not depend on it: every bound-property mutation below is explicitly marshaled
+    /// through Dispatcher.UIThread.Post rather than assumed to already be on the UI thread.
+    /// Raising PropertyChanged off the UI thread in Avalonia is a crash or silent binding
+    /// corruption, not a warning.
+    /// </summary>
+    private async Task RunUpdateCheckAsync(bool userRequested)
+    {
+        UpdateStatus = "Checking…";
+
+        var checker = new UpdateChecker(ReleaseFetch.LatestReleaseJsonAsync, AppInfo.Version);
+        UpdateCheckResult result = await checker
+            .CheckAsync(_settings.Current, userRequested, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            switch (result.Outcome)
+            {
+                case UpdateCheckOutcome.UpdateAvailable when result.Release is { } release:
+                    UpdateStatus = $"Version {release.TagName} is available. You have {AppInfo.Version}.";
+                    UpdateLinkUrl = release.HtmlUrl;
+                    _settings.Update(s => s with { LastSeenVersion = release.TagName });
+                    break;
+
+                case UpdateCheckOutcome.UpToDate:
+                    UpdateStatus = $"Daylane {AppInfo.Version} is up to date.";
+                    UpdateLinkUrl = null;
+                    break;
+
+                case UpdateCheckOutcome.Failed:
+                    UpdateStatus = "Could not reach GitHub.";
+                    UpdateLinkUrl = null;
+                    break;
+
+                default:
+                    UpdateStatus = "Automatic checks are off.";
+                    UpdateLinkUrl = null;
+                    break;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Measures the database and refreshes the two independent summaries the Data panel shows.
+    /// DatabaseBytes and RecordedRows are measured through unrelated code paths (a file stat and
+    /// a SQLite query) and either can fail while the other succeeds, so each is rendered on its
+    /// own: a null here means "could not be measured", never "zero" -- collapsing the two would
+    /// turn an unknown into a false claim of an empty database.
+    /// </summary>
+    private void RefreshStorage()
+    {
+        StorageReport report = _tracking.MeasureStorage();
+
+        StorageSummary = report.DatabaseBytes is { } bytes
+            ? FormatBytes(bytes)
+            : "Size unavailable";
+
+        RecordedRowsSummary = report.RecordedRows is { } rows
+            ? $"{rows:N0} rows recorded"
+            : "Row count unavailable";
+
+        DatabasePathDisplay = report.DatabasePath;
+        OnPropertyChanged(nameof(DatabasePathDisplay));
+    }
+
+    private void ConfirmPurge()
+    {
+        _tracking.PurgeRecordedActivity();
+        ConfirmPurgeVisible = false;
+        RefreshDay();
+        RefreshInsights();
+        RefreshStorage();
+    }
+
+    /// <summary>Binary units, because that is what a file manager shows for the same file.</summary>
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double value = bytes;
+        int unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} B" : $"{value:0.#} {units[unit]}";
     }
 
     /// <summary>
@@ -1738,6 +1980,23 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         Process.Start(new ProcessStartInfo
         {
             FileName = directory,
+            UseShellExecute = true
+        });
+    }
+
+    /// <summary>Same shell-open pattern as OpenDataFolder, generalized to any URL: a release
+    /// page, the repository, the issue tracker, the license or the upstream project. No-ops on
+    /// a null or blank url so a stale or not-yet-set UpdateLinkUrl can never launch anything.</summary>
+    private static void OpenUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = url,
             UseShellExecute = true
         });
     }

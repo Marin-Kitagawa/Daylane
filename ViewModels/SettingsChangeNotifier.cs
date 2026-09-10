@@ -23,7 +23,8 @@ internal static class SettingsChangeNotifier
         nameof(MainWindowViewModel.RecordWindowTitles),
         nameof(MainWindowViewModel.RecordBrowserHost),
         nameof(MainWindowViewModel.CanRecordBrowserHost),
-        nameof(MainWindowViewModel.CanIgnoreByTitleKeyword)
+        nameof(MainWindowViewModel.CanIgnoreByTitleKeyword),
+        nameof(MainWindowViewModel.CheckForUpdates)
 
         // PrivacyKeywords and IgnoreRules are deliberately NOT here. Both are
         // ObservableCollections returned by the same reference on every read, so re-raising
