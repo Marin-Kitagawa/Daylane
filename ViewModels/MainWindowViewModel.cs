@@ -108,6 +108,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private bool _confirmPurgeVisible;
     private string _storageSummary = "Calculating…";
     private string _recordedRowsSummary = "Calculating…";
+    private string _purgeResultSummary = "";
 
     // Debounces SearchQuery: without it, every keystroke would run SearchTitles synchronously
     // against _dbWriteLock, which the background writer also takes.
@@ -162,9 +163,17 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         RemoveIgnoreRuleCommand = new RelayCommand<IgnoreRule>(RemoveIgnoreRule);
         CheckForUpdatesCommand = new RelayCommand(() => _ = RunUpdateCheckAsync(userRequested: true));
         OpenUpdateLinkCommand = new RelayCommand(() => OpenUrl(_updateLinkUrl));
-        PurgeDataCommand = new RelayCommand(() => ConfirmPurgeVisible = true);
+        PurgeDataCommand = new RelayCommand(() =>
+        {
+            PurgeResultSummary = "";
+            ConfirmPurgeVisible = true;
+        });
         ConfirmPurgeCommand = new RelayCommand(ConfirmPurge);
-        CancelPurgeCommand = new RelayCommand(() => ConfirmPurgeVisible = false);
+        CancelPurgeCommand = new RelayCommand(() =>
+        {
+            PurgeResultSummary = "";
+            ConfirmPurgeVisible = false;
+        });
         OpenRepositoryCommand = new RelayCommand(() => OpenUrl(AppInfo.RepositoryUrl));
         OpenIssuesCommand = new RelayCommand(() => OpenUrl(AppInfo.IssuesUrl));
         OpenLicenseCommand = new RelayCommand(() => OpenUrl(AppInfo.LicenseUrl));
@@ -919,7 +928,31 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    public string DatabasePathDisplay { get; private set; } = "";
+    /// <summary>Reports what ConfirmPurge just did (how many rows, or that it failed), separate
+    /// from StorageSummary/RecordedRowsSummary -- those are refreshed to the post-purge state by
+    /// the same call, which would immediately overwrite a message living on either of them.
+    /// Cleared whenever the confirmation panel is opened or dismissed, so a stale result from a
+    /// previous purge cannot linger into the next one.</summary>
+    public string PurgeResultSummary
+    {
+        get => _purgeResultSummary;
+        private set
+        {
+            if (_purgeResultSummary == value)
+            {
+                return;
+            }
+
+            _purgeResultSummary = value;
+            OnPropertyChanged();
+        }
+    }
+
+    // Not a backing field: MeasureStorage's own DatabasePath is always exactly
+    // _tracking.DatabasePath (StorageUsage.Measure is handed that very string), so this is
+    // correct from construction, not only after the Settings tab is first selected, and it can
+    // never drift from the pre-existing DatabasePath property below.
+    public string DatabasePathDisplay => _tracking.DatabasePath;
 
     public string AppVersion => AppInfo.Version;
 
@@ -1041,12 +1074,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     ///
     /// This can be reached two ways: fire-and-forget from the constructor (no guaranteed
     /// synchronization context to resume on) and from CheckForUpdatesCommand (a UI-thread call,
-    /// but the same method must be safe from both callers). ConfigureAwait(false) is used
-    /// deliberately -- not because the continuation's thread doesn't matter, but because this
-    /// code does not depend on it: every bound-property mutation below is explicitly marshaled
-    /// through Dispatcher.UIThread.Post rather than assumed to already be on the UI thread.
-    /// Raising PropertyChanged off the UI thread in Avalonia is a crash or silent binding
-    /// corruption, not a warning.
+    /// but the same method must be safe from both callers). The "Checking…" assignment above the
+    /// await runs synchronously on whichever thread called this method -- today always the UI
+    /// thread for both call sites -- so it is not itself marshaled. ConfigureAwait(false) is used
+    /// deliberately on the await below -- not because the continuation's thread doesn't matter,
+    /// but because the code after it does not depend on it: every bound-property mutation in the
+    /// post-await callback is explicitly marshaled through Dispatcher.UIThread.Post rather than
+    /// assumed to already be on the UI thread. Raising PropertyChanged off the UI thread in
+    /// Avalonia is a crash or silent binding corruption, not a warning.
     /// </summary>
     private async Task RunUpdateCheckAsync(bool userRequested)
     {
@@ -1103,22 +1138,43 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         RecordedRowsSummary = report.RecordedRows is { } rows
             ? $"{rows:N0} rows recorded"
             : "Row count unavailable";
-
-        DatabasePathDisplay = report.DatabasePath;
-        OnPropertyChanged(nameof(DatabasePathDisplay));
     }
 
+    /// <summary>
+    /// The store's own DELETE transaction deliberately runs outside a try (a failure there must
+    /// leave history intact rather than half-delete it), and TrackingService.PurgeRecordedActivity
+    /// has only a finally -- so a SqliteException (locked file, disk full) propagates all the
+    /// way up here, and this is the single most destructive action in the product. Catching it
+    /// is what stands between that and an unhandled exception on the UI thread from
+    /// RelayCommand.Execute. The finally clears ConfirmPurgeVisible either way, so a failed
+    /// purge can never strand the confirmation panel visible.
+    /// </summary>
     private void ConfirmPurge()
     {
-        _tracking.PurgeRecordedActivity();
-        ConfirmPurgeVisible = false;
-        RefreshDay();
-        RefreshInsights();
-        RefreshStorage();
+        try
+        {
+            int deleted = _tracking.PurgeRecordedActivity();
+            PurgeResultSummary = $"Deleted {deleted:N0} rows.";
+            RefreshDay();
+            RefreshInsights();
+            RefreshStorage();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Purge failed: {ex.Message}");
+            PurgeResultSummary = "Could not delete recorded activity.";
+        }
+        finally
+        {
+            ConfirmPurgeVisible = false;
+        }
     }
 
-    /// <summary>Binary units, because that is what a file manager shows for the same file.</summary>
-    private static string FormatBytes(long bytes)
+    /// <summary>internal, not private: unit-tested directly (FormatBytesTests) since it is the
+    /// only pure logic this task adds -- everything else on this view model needs a live
+    /// TrackingService and cannot be constructed in a test. Binary units, because that is what a
+    /// file manager shows for the same file.</summary>
+    internal static string FormatBytes(long bytes)
     {
         string[] units = ["B", "KB", "MB", "GB"];
         double value = bytes;
@@ -1974,22 +2030,34 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         return $"{Math.Max(0, (int)duration.TotalSeconds)}s";
     }
 
-    private static void OpenDataFolder(string databasePath)
-    {
-        string directory = Path.GetDirectoryName(databasePath) ?? AppContext.BaseDirectory;
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = directory,
-            UseShellExecute = true
-        });
-    }
+    private static void OpenDataFolder(string databasePath) =>
+        OpenUrl(Path.GetDirectoryName(databasePath) ?? AppContext.BaseDirectory);
 
-    /// <summary>Same shell-open pattern as OpenDataFolder, generalized to any URL: a release
-    /// page, the repository, the issue tracker, the license or the upstream project. No-ops on
-    /// a null or blank url so a stale or not-yet-set UpdateLinkUrl can never launch anything.</summary>
+    /// <summary>
+    /// Same shell-open pattern used for the data folder, generalized to any URL: a release page,
+    /// the repository, the issue tracker, the license or the upstream project. No-ops on a null
+    /// or blank url so a stale or not-yet-set UpdateLinkUrl can never launch anything.
+    ///
+    /// One of these five call sites (OpenDataFolder) passes a local directory, not a URL, and
+    /// the other four pass a string this process never chose -- release.HtmlUrl comes from the
+    /// GitHub release JSON, and ReleaseFeed.Parse only checks that it is non-blank. UseShellExecute
+    /// = true on an arbitrary string can launch a UNC path or a non-web scheme, so a remote-supplied
+    /// value must clear an explicit allowlist: either it names a directory that already exists on
+    /// this machine, or it parses as an absolute http/https URL. Anything else -- file:, a bare UNC
+    /// path that is not an existing directory, javascript:, and so on -- is silently refused.
+    /// </summary>
     private static void OpenUrl(string? url)
     {
         if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        bool isExistingDirectory = Directory.Exists(url);
+        bool isWebUrl = Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed)
+            && parsed.Scheme is "http" or "https";
+
+        if (!isExistingDirectory && !isWebUrl)
         {
             return;
         }
