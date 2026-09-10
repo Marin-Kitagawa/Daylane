@@ -1244,7 +1244,9 @@
                             <TextBlock Text="{Binding RecordedRowsSummary}" FontSize="13" />
                         </StackPanel>
                         <StackPanel Spacing="6">
-                            <TextBlock Text="{Binding DatabasePathDisplay}" FontSize="13" TextWrapping="Wrap" />
+                            <!-- Selectable, not a plain TextBlock: the point of showing the path
+                                 is that the user can take it somewhere else. -->
+                            <SelectableTextBlock Text="{Binding DatabasePathDisplay}" FontSize="13" TextWrapping="Wrap" />
                             <Button Classes="secondary"
                                     Content="Open folder"
                                     Command="{Binding OpenDataFolderCommand}" />

@@ -103,9 +103,18 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _searchQuery = "";
     private readonly ObservableCollection<TitleSearchItemViewModel> _searchResults = [];
     private TitleSearchItemViewModel? _selectedSearchItem;
-    private string _updateStatus = "Automatic checks are off.";
+    // The two idle texts the update panel shows before any check has produced an answer. Named
+    // constants because the CheckForUpdates setter has to recognise them to know whether the
+    // line still merely describes the switch or now carries a real result.
+    private const string AutomaticChecksOffStatus = "Automatic checks are off.";
+    private const string AutomaticChecksOnStatus = "Automatic checks are on.";
+
+    private string _updateStatus = AutomaticChecksOffStatus;
     private string? _updateLinkUrl;
     private bool _confirmPurgeVisible;
+
+    // UI-thread only. Refuses a second purge while one is on the thread pool; see ConfirmPurge.
+    private bool _purgeInFlight;
     private string _storageSummary = "Calculating…";
     private string _recordedRowsSummary = "Calculating…";
     private string _purgeResultSummary = "";
@@ -165,6 +174,13 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         OpenUpdateLinkCommand = new RelayCommand(() => OpenWebUrl(_updateLinkUrl));
         PurgeDataCommand = new RelayCommand(() =>
         {
+            // Not while one is already running: re-offering the confirmation would wipe the
+            // "Deleting…" line and invite a click that ConfirmPurge would only refuse anyway.
+            if (_purgeInFlight)
+            {
+                return;
+            }
+
             PurgeResultSummary = "";
             ConfirmPurgeVisible = true;
         });
@@ -192,8 +208,6 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public bool IsRunning => _tracking.IsRunning;
-
-    public string DatabasePath => _tracking.DatabasePath;
 
     public string CurrentAppName => _tracking.CurrentAppName;
 
@@ -847,6 +861,15 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
             _settings.Update(s => s with { CheckForUpdates = value });
             OnPropertyChanged();
+
+            // The status line describes the switch until a check has said something of its own.
+            // Without this it keeps asserting "Automatic checks are off." beside a switch the
+            // user has just turned on. Guarded on the two idle texts so a real answer -- a
+            // version, "up to date", a failure -- is never overwritten by flipping the toggle.
+            if (_updateStatus is AutomaticChecksOffStatus or AutomaticChecksOnStatus)
+            {
+                UpdateStatus = value ? AutomaticChecksOnStatus : AutomaticChecksOffStatus;
+            }
         }
     }
 
@@ -953,8 +976,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
     // Not a backing field: MeasureStorage's own DatabasePath is always exactly
     // _tracking.DatabasePath (StorageUsage.Measure is handed that very string), so this is
-    // correct from construction, not only after the Settings tab is first selected, and it can
-    // never drift from the pre-existing DatabasePath property below.
+    // correct from construction rather than only after the Settings tab is first selected.
     public string DatabasePathDisplay => _tracking.DatabasePath;
 
     public string AppVersion => AppInfo.Version;
@@ -1115,10 +1137,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
                     UpdateLinkUrl = null;
                     break;
 
-                default:
-                    UpdateStatus = "Automatic checks are off.";
-                    UpdateLinkUrl = null;
-                    break;
+                // No arm for Skipped: it cannot arrive here. The constructor only starts a check
+                // when CheckForUpdates is on, and the only other caller passes userRequested,
+                // which is precisely the pair of conditions UpdateChecker returns Skipped for.
+                // An arm claiming "Automatic checks are off." would be dead code that could only
+                // ever print something false. UpdateChecker's own Skipped guard stays: that is
+                // what the default-off proof test pins.
             }
         });
     }
@@ -1147,9 +1171,17 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     /// The store's own DELETE transaction deliberately runs outside a try (a failure there must
     /// leave history intact rather than half-delete it), and TrackingService.PurgeRecordedActivity
     /// has only a finally -- so a SqliteException (locked file, disk full) propagates all the
-    /// way up here, and this is the single most destructive action in the product. Catching it
-    /// is what stands between that and an unhandled exception on the UI thread from
-    /// RelayCommand.Execute.
+    /// way out of the purge, and this is the single most destructive action in the product.
+    /// Catching it is what stands between that and an unobserved task exception.
+    ///
+    /// The purge runs on the thread pool. It holds _dbWriteLock across seven DELETEs, a commit,
+    /// a VACUUM and a WAL checkpoint -- seconds to minutes on a large database -- and running
+    /// that inline would give the user a "Not Responding" window on the one action they most
+    /// need to see finish. Everything it produces is marshaled back through Dispatcher.UIThread,
+    /// exactly as RunUpdateCheckAsync does: raising PropertyChanged off the UI thread in Avalonia
+    /// is a crash or silent binding corruption, not a warning. The three refreshes are marshaled
+    /// too -- they rebuild bound collections, so they belong on the UI thread even though the
+    /// queries behind them do not.
     ///
     /// The purge and the post-purge refreshes are caught separately, on purpose: if the purge
     /// itself succeeds but a refresh afterward throws, a single shared try/catch around both
@@ -1157,44 +1189,78 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     /// when in fact it was, which is worse than the crash it replaces because it is silent and
     /// wrong rather than loud. Splitting them means PurgeResultSummary, once set to a genuine
     /// success by the purge itself, can never be overwritten by an unrelated refresh failure.
-    /// The finally clears ConfirmPurgeVisible on every path, so a failed purge (or a purge whose
-    /// refresh failed) can never strand the confirmation panel visible.
     /// </summary>
     private void ConfirmPurge()
     {
-        try
+        // Clearing ConfirmPurgeVisible hides the button, but hiding a control is not the same as
+        // refusing the command: a queued click or a keyboard activation can still arrive while
+        // the purge runs, and a second run would contend with the first over _dbWriteLock and
+        // then overwrite its result with its own count. The flag is the actual refusal; it is
+        // read and written only on the UI thread.
+        if (_purgeInFlight)
         {
+            return;
+        }
+
+        _purgeInFlight = true;
+        ConfirmPurgeVisible = false;
+        PurgeResultSummary = "Deleting…";
+
+        _ = Task.Run(() =>
+        {
+            string summary;
+            bool purged;
+
             try
             {
                 int deleted = _tracking.PurgeRecordedActivity();
-                PurgeResultSummary = $"Deleted {deleted:N0} rows.";
+
+                // Says what it counted: this spans every activity table, which is a wider set
+                // than the three StorageUsage counts for "rows recorded", so the two numbers
+                // legitimately differ and a bare "Deleted N rows." beside them reads as a bug.
+                summary = $"Deleted {deleted:N0} rows across all activity tables.";
+                purged = true;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Purge failed: {ex.Message}");
-                PurgeResultSummary = "Could not delete recorded activity.";
-                return;
+                summary = "Could not delete recorded activity.";
+                purged = false;
             }
 
-            try
+            Dispatcher.UIThread.Post(() =>
             {
-                RefreshDay();
-                RefreshInsights();
-                RefreshStorage();
-            }
-            catch (Exception ex)
-            {
-                // The purge itself already succeeded and PurgeResultSummary already reflects
-                // that -- a refresh failure here must not overwrite it with a false "nothing was
-                // deleted" message. The panels affected simply keep showing pre-purge data until
-                // the next refresh (e.g. the next Settings-tab selection) succeeds.
-                Debug.WriteLine($"Post-purge refresh failed: {ex.Message}");
-            }
-        }
-        finally
-        {
-            ConfirmPurgeVisible = false;
-        }
+                try
+                {
+                    PurgeResultSummary = summary;
+
+                    if (!purged)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        RefreshDay();
+                        RefreshInsights();
+                        RefreshStorage();
+                    }
+                    catch (Exception ex)
+                    {
+                        // The purge itself already succeeded and PurgeResultSummary already
+                        // reflects that -- a refresh failure here must not overwrite it with a
+                        // false "nothing was deleted" message. The panels affected simply keep
+                        // showing pre-purge data until the next refresh (e.g. the next
+                        // Settings-tab selection) succeeds.
+                        Debug.WriteLine($"Post-purge refresh failed: {ex.Message}");
+                    }
+                }
+                finally
+                {
+                    _purgeInFlight = false;
+                }
+            });
+        });
     }
 
     /// <summary>internal, not private: unit-tested directly (FormatBytesTests) since it is the
