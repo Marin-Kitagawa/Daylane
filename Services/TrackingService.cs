@@ -630,6 +630,36 @@ internal sealed class TrackingService : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Closes whatever is open, deletes all recorded activity, and resets the live counters.
+    ///
+    /// The close must come first: this service holds an open segment's row id, and purging
+    /// underneath it would leave the next flush writing counts against a row that no longer
+    /// exists -- a silent no-op that leaves memory and the database permanently disagreeing.
+    /// </summary>
+    internal int PurgeRecordedActivity()
+    {
+        CloseOpenSegment(DateTime.UtcNow);
+        CloseAllOpenApps(DateTime.UtcNow);
+        _store.Flush();
+
+        int deleted = _store.PurgeRecordedActivity();
+
+        lock (_rolloverLock)
+        {
+            _keyPressCount = 0;
+            _mouseClickCount = 0;
+            _currentDateKey = TodayKey();
+        }
+
+        // Force, so the UI shows zeroes now rather than at the next five-second tick.
+        PublishActivity(force: true);
+        return deleted;
+    }
+
+    internal StorageReport MeasureStorage() =>
+        StorageUsage.Measure(_store.DatabasePath, _store.ConnectionString);
+
     private void PublishActivity(bool force = false)
     {
         if (_disposed)
